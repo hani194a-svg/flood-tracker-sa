@@ -9,6 +9,11 @@ import RiskTimeline from './components/RiskTimeline.jsx';
 import { MissingToken } from './PublicMap.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
+const SATELLITE_STYLE = 'mapbox://styles/mapbox/satellite-streets-v12';
+// Google Maps URLs API: a pinned search, and the satellite basemap centred on the point
+const gmapsPin = (lat, lng) => `https://www.google.com/maps/search/?api=1&query=${lat.toFixed(6)},${lng.toFixed(6)}`;
+const gmapsSat = (lat, lng) =>
+  `https://www.google.com/maps/@?api=1&map_action=map&center=${lat.toFixed(6)},${lng.toFixed(6)}&zoom=17&basemap=satellite`;
 const TERRAIN_ATTRIBUTION = `${OSM_ATTRIBUTION} · التضاريس: Copernicus GLO-30 · الغطاء الأرضي: ESA WorldCover · الطقس: Open-Meteo`;
 
 export default function RiskMap() {
@@ -24,6 +29,14 @@ export default function RiskMap() {
   const [error, setError] = useState(null);
   const [tokenRejected, setTokenRejected] = useState(false);
   const [mapReady, setMapReady] = useState(false);
+  const [basemap, setBasemap] = useState(() => {
+    try { return localStorage.getItem('flood_basemap') || 'sat'; } catch { return 'sat'; }
+  });
+  const [styleTick, setStyleTick] = useState(0);   // bumps after a style swap so levels are repainted
+  const chooseBasemap = (m) => {
+    setBasemap(m);
+    try { localStorage.setItem('flood_basemap', m); } catch { /* storage unavailable */ }
+  };
   const [regions, setRegions] = useState([]);
   const [region, setRegion] = useState(() => {
     try { return localStorage.getItem('flood_region') || 'riyadh'; } catch { return 'riyadh'; }
@@ -105,7 +118,7 @@ export default function RiskMap() {
       const l = levelAt(series, hour);
       if (l > 1) map.setFeatureState({ source: 'streams', id: Number(id) }, { level: l });
     }
-  }, [levels, streams, hour, mapReady]);
+  }, [levels, streams, hour, mapReady, styleTick]);
 
   const hourTime = levels ? new Date(new Date(levels.start).getTime() + hour * 3.6e6) : null;
   const countsNow = useMemo(() => {
@@ -202,6 +215,10 @@ export default function RiskMap() {
               <div><dt>رقم المنحنى (الجريان)</dt><dd className="num">{Number(selected.stream.cn_up).toFixed(0)}</dd></div>
               <div><dt>مبانٍ في منطقة الخطر</dt><dd className="num">{(Number(selected.stream.zone_built_km2) * 100).toFixed(0)} هكتار</dd></div>
             </dl>
+            <div className="gmaps">
+              <a href={gmapsPin(selected.stream.lat, selected.stream.lng)} target="_blank" rel="noopener noreferrer">افتح النقطة في خرائط قوقل ↗</a>
+              <a href={gmapsSat(selected.stream.lat, selected.stream.lng)} target="_blank" rel="noopener noreferrer">قمر صناعي في قوقل ↗</a>
+            </div>
             <RiskTimeline data={selected} currentTime={hourTime} />
           </section>
         )}
@@ -223,15 +240,23 @@ export default function RiskMap() {
           ref={mapRef}
           mapboxAccessToken={MAPBOX_TOKEN}
           initialViewState={{ longitude: 46.70, latitude: 24.68, zoom: 9 }}
-          mapStyle={MAP_STYLE}
+          mapStyle={basemap === 'sat' ? SATELLITE_STYLE : MAP_STYLE}
           style={{ width: '100%', height: '100%' }}
           interactiveLayerIds={['streams-line']}
           customAttribution={TERRAIN_ATTRIBUTION}
-          onLoad={() => setMapReady(true)}
+          onLoad={(e) => {
+            setMapReady(true);
+            // a basemap swap reloads the style and drops feature-state → repaint once it settles
+            e.target.on('style.load', () => e.target.once('idle', () => setStyleTick((t) => t + 1)));
+          }}
           onClick={(e) => { const f = e.features?.[0]; if (f) openStream(f.id); }}
           onError={(e) => { if (e.error?.status === 401) setTokenRejected(true); }}
         >
           <NavigationControl position="top-left" />
+          <div className="basemap-toggle" role="group" aria-label="خلفية الخريطة">
+            <button aria-pressed={basemap === 'sat'} onClick={() => chooseBasemap('sat')}>قمر صناعي</button>
+            <button aria-pressed={basemap === 'map'} onClick={() => chooseBasemap('map')}>خريطة</button>
+          </div>
           {zones && (
             <Source id="zones" type="geojson" data={zones}>
               <Layer id="zones-fill" type="fill" paint={{ 'fill-color': LEVELS[4].color, 'fill-opacity': 0.22 }} />

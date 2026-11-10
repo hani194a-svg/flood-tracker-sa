@@ -117,6 +117,18 @@ details ol, details ul { margin: 8px 0; padding-inline-start: 20px; display: gri
 .note { margin: 0; font-size: 12.5px; color: var(--muted); }
 .loading { position: absolute; z-index: 600; inset: 0; display: grid; place-items: center; background: color-mix(in srgb, var(--land) 70%, transparent); font-weight: 600; }
 
+.basemap { position: absolute; z-index: 550; top: 10px; right: 10px; display: flex; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 3px; gap: 2px; }
+.basemap button { border: 0; background: none; padding: 5px 12px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 13px; color: var(--muted); }
+.basemap button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+.gmaps { display: flex; flex-wrap: wrap; gap: 6px; }
+.gmaps a { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--fg); text-decoration: none; font-weight: 600; font-size: 13px; background: var(--surface-2); }
+.gmaps a:hover { border-color: var(--accent); }
+.pop { font-family: var(--font); display: grid; gap: 6px; direction: rtl; text-align: right; }
+.pop .coords { font-family: var(--mono); font-size: 12px; color: var(--muted); direction: ltr; text-align: left; }
+.leaflet-popup-content { margin: 10px 12px; }
+.sat-on .place { color: #fff; text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 2px #000; }
+.sat-on .sat-img { filter: none; }
+
 /* map chrome */
 .leaflet-container { font-family: var(--font); background: var(--land); }
 .hill { filter: var(--shade-filter); opacity: .55; }
@@ -132,6 +144,7 @@ details ol, details ul { margin: 8px 0; padding-inline-start: 20px; display: gri
 .attr { position: absolute; z-index: 500; bottom: calc(4px + env(safe-area-inset-bottom, 0px)); left: 8px; font-size: 10.5px; color: var(--muted);
   background: color-mix(in srgb, var(--surface) 80%, transparent); padding: 1px 6px; border-radius: 4px; max-width: 60%; }
 @media (max-width: 860px) {
+  .attr { bottom: auto; top: 50px; left: auto; right: 8px; max-width: 62%; font-size: 9.5px; }
   .legend { left: 8px; right: 8px; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 5px 8px; font-size: 11.5px; }
   .legend i { width: 12px; }
 }
@@ -201,6 +214,10 @@ details ol, details ul { margin: 8px 0; padding-inline-start: 20px; display: gri
   <div class="mapwrap">
     <div id="map" dir="ltr" aria-label="خريطة الأودية ومستوى الخطر"></div>
     <div class="loading" id="loading" hidden>جارٍ تحميل بيانات المنطقة…</div>
+    <div class="basemap" role="group" aria-label="خلفية الخريطة">
+      <button id="bm-sat" aria-pressed="true">قمر صناعي</button>
+      <button id="bm-terrain" aria-pressed="false">تضاريس</button>
+    </div>
     <div class="legend" aria-hidden="true">
       <span><i style="background:var(--l5)"></i>شديد</span>
       <span><i style="background:var(--l4)"></i>مرتفع</span>
@@ -209,7 +226,7 @@ details ol, details ul { margin: 8px 0; padding-inline-start: 20px; display: gri
       <span><i style="background:var(--chan);opacity:.5"></i>لا خطر</span>
       <span><i class="zone" style="background:var(--l4)"></i>منطقة غمر محتملة</span>
     </div>
-    <div class="attr">Copernicus DEM · ESA WorldCover · Open-Meteo</div>
+    <div class="attr" id="attr">Copernicus DEM · ESA WorldCover · Open-Meteo</div>
   </div>
 </div>
 
@@ -308,20 +325,40 @@ const canvas = L.canvas({ padding: 0.3, tolerance: 6 });
 const geoToLL = (g) => g.type === 'LineString' ? g.coordinates.map(([x, y]) => [y, x]) : g.coordinates.map((l) => l.map(([x, y]) => [y, x]));
 const polyLL = (g) => (g.type === 'Polygon' ? [g.coordinates] : g.coordinates).map((p) => p.map((r) => r.map(([x, y]) => [y, x])));
 
-let seaL, builtL, hill, placeL;
+let seaL, builtL, hill, placeL, satL = [];
+let basemap = 'sat';
+const satCache = new Map();
 const zoneLayers = new Map();
 let lines = [];
 const width = (a) => (a < 5 ? 1 : a < 20 ? 1.6 : a < 100 ? 2.6 : a < 400 ? 4 : 5.5);
 
+async function loadSat(slug) {
+  if (!satCache.has(slug)) {
+    try {
+      const r = await fetch(`data/sat/${slug}.json`);
+      satCache.set(slug, r.ok ? await r.json() : null);
+    } catch { satCache.set(slug, null); }
+  }
+  return satCache.get(slug);
+}
 function drawBase() {
-  [seaL, builtL, hill, placeL].forEach((l) => l && l.remove());
+  [seaL, builtL, hill, placeL, ...satL].forEach((l) => l && l.remove());
+  satL = [];
   for (const l of zoneLayers.values()) l.remove();
   zoneLayers.clear();
   lines.forEach((l) => l.remove());
   if (!D) return;
-  hill = L.imageOverlay(D.hillshade.url, D.hillshade.bounds, { className: 'hill', interactive: false }).addTo(map);
-  builtL = D.built && L.polygon(polyLL(D.built), { renderer: canvas, stroke: false, fillColor: css('--built'), fillOpacity: 0.55, interactive: false }).addTo(map);
-  seaL = D.sea && L.polygon(polyLL(D.sea), { renderer: canvas, stroke: false, fillColor: css('--sea'), fillOpacity: 1, interactive: false }).addTo(map);
+  const sat = basemap === 'sat' ? satCache.get(D.region.slug) : null;
+  document.querySelector('.mapwrap').classList.toggle('sat-on', !!sat);
+  $('#attr').textContent = sat ? `${sat.attribution} · Copernicus DEM · ESA WorldCover · Open-Meteo` : 'Copernicus DEM · ESA WorldCover · Open-Meteo';
+  if (sat) {
+    // overview first, sharper city image on top (both Web Mercator, so bounds line up exactly)
+    satL = sat.layers.map((ly) => L.imageOverlay(`data/${ly.file}`, ly.bounds, { className: 'sat-img', interactive: false }).addTo(map));
+  } else {
+    hill = L.imageOverlay(D.hillshade.url, D.hillshade.bounds, { className: 'hill', interactive: false }).addTo(map);
+    builtL = D.built && L.polygon(polyLL(D.built), { renderer: canvas, stroke: false, fillColor: css('--built'), fillOpacity: 0.55, interactive: false }).addTo(map);
+    seaL = D.sea && L.polygon(polyLL(D.sea), { renderer: canvas, stroke: false, fillColor: css('--sea'), fillOpacity: 1, interactive: false }).addTo(map);
+  }
   for (const z of D.zones) {
     if (z.g) zoneLayers.set(z.s, L.polygon(polyLL(z.g), { renderer: canvas, stroke: false, fillOpacity: 0, interactive: false }).addTo(map));
   }
@@ -330,6 +367,14 @@ function drawBase() {
   placeL = L.layerGroup(D.region.places.map(([n, lat, lng]) => L.circleMarker([lat, lng], { radius: 0, stroke: false, fill: false, interactive: false })
     .bindTooltip(n, { permanent: true, direction: 'center', className: 'place' }))).addTo(map);
 }
+map.on('zoomend', () => { if (D && res) paint(); });
+map.on('click', (e) => {
+  const { lat, lng } = e.latlng;
+  L.popup({ maxWidth: 260 }).setLatLng(e.latlng).setContent(`<div class="pop">
+    <strong>${D ? (nearPlace({ g: { coordinates: [[lng, lat]] } }) || 'نقطة على الخريطة') : 'نقطة على الخريطة'}</strong>
+    <span class="coords">${lat.toFixed(5)}, ${lng.toFixed(5)}</span>${gmapsLinks(lat, lng)}</div>`).openOn(map);
+});
+
 // nearest named place to a reach's outlet (for readable alert titles)
 function nearPlace(s) {
   const c = s.g.coordinates.at(-1), k = Math.cos(c[1] * Math.PI / 180);
@@ -343,10 +388,14 @@ function nearPlace(s) {
 
 function paint() {
   const lv = levelsAt(hour);
-  const chan = css('--chan');
+  const satOn = document.querySelector('.mapwrap').classList.contains('sat-on');
+  const chan = satOn ? '#7dd3fc' : css('--chan');
   lines.forEach((l, i) => {
     const v = lv[i], s = D.streams[i];
-    l.setStyle({ color: v > 1 ? css('--l' + v) : chan, opacity: v > 1 ? 1 : 0.4, weight: width(s.a) + (v >= 4 ? 1.5 : 0) });
+    // on satellite, quiet channels would hide the image at wide zoom: show only the larger ones there
+    const z = map.getZoom();
+    const quiet = satOn ? (z < 10.5 ? (s.a >= 50 ? 0.55 : 0) : z < 12 ? (s.a >= 10 ? 0.6 : 0.25) : 0.7) : 0.4;
+    l.setStyle({ color: v > 1 ? css('--l' + v) : chan, opacity: v > 1 ? 1 : quiet, weight: width(s.a) + (v >= 4 ? 1.5 : 0) });
     if (v >= 3) l.bringToFront();
   });
   for (const [sid, layer] of zoneLayers) {
@@ -394,6 +443,13 @@ function select(id, fly) {
   document.querySelectorAll('#alerts button').forEach((b) => b.setAttribute('aria-current', +b.dataset.id === id));
   renderDetail(id);
 }
+// Google Maps URLs API: a pinned search, and the satellite basemap centred on the point
+const gmapsPin = (lat, lng) => `https://www.google.com/maps/search/?api=1&query=${lat.toFixed(6)},${lng.toFixed(6)}`;
+const gmapsSat = (lat, lng) => `https://www.google.com/maps/@?api=1&map_action=map&center=${lat.toFixed(6)},${lng.toFixed(6)}&zoom=17&basemap=satellite`;
+const gmapsLinks = (lat, lng) => `<div class="gmaps">
+  <a href="${gmapsPin(lat, lng)}" target="_blank" rel="noopener">افتح النقطة في خرائط قوقل ↗</a>
+  <a href="${gmapsSat(lat, lng)}" target="_blank" rel="noopener">قمر صناعي في قوقل ↗</a></div>`;
+
 function renderDetail(id) {
   const i = idxById.get(id), s = D.streams[i], r = res[i];
   const el = $('#detail');
@@ -408,6 +464,7 @@ function renderDetail(id) {
       <div><dt>رقم المنحنى</dt><dd><span class="num">${Math.round(s.cn)}</span> <span class="muted">(${s.cn >= 88 ? 'صخري/عمراني' : s.cn >= 80 ? 'مختلط' : 'رملي'})</span></dd></div>
       <div><dt>أعلى جريان</dt><dd><span class="num">${Math.round(Math.max(...r.runoff))}</span> ملم</dd></div>
     </dl>
+    ${(() => { const c = s.g.coordinates[Math.floor(s.g.coordinates.length / 2)]; return gmapsLinks(c[1], c[0]); })()}
     <figure class="chart" style="margin:0"><svg id="chart" viewBox="0 0 360 150" dir="ltr" role="img" aria-label="المطر على الحوض ومستوى الخطر"></svg>
     <figcaption>الأعمدة: المطر على كامل الحوض (ملم/ساعة). الشريط: مستوى الخطر وقت الذروة.</figcaption></figure>`;
   drawChartNow();
@@ -478,19 +535,24 @@ async function loadRegion(slug) {
     return;
   }
   D = cache.get(slug);
+  await loadSat(slug);
   $('#loading').hidden = true;
   $('#title').textContent = `توقعات السيول · ${D.region.name_ar}`;
   $('#n-streams').textContent = D.streams.length.toLocaleString('ar-SA');
   $('#region-note').textContent = NOTES[slug] || '';
   $('#region-note').hidden = !NOTES[slug];
   idxById = new Map(D.streams.map((s, i) => [s.id, i]));
-  lines = D.streams.map((s) => L.polyline(geoToLL(s.g), { renderer: canvas, weight: 1, lineCap: 'round', lineJoin: 'round', interactive: true })
+  lines = D.streams.map((s) => L.polyline(geoToLL(s.g), { renderer: canvas, weight: 1, lineCap: 'round', lineJoin: 'round', interactive: true, bubblingMouseEvents: false })
     .on('click', () => select(s.id, false)));
+  selected = null; res = null; $('#detail').hidden = true;   // before moving the map (zoomend repaints)
   const [x0, y0, x1, y1] = D.region.bbox;
   map.setMaxBounds([[y0 - 0.3, x0 - 0.4], [y1 + 0.3, x1 + 0.4]]);
+  // open on the city (the sharp satellite crop) so it fills the screen at any size
+  const city = satCache.get(slug)?.layers.find((l) => l.name === 'city');
   const v = D.region.view;
-  if (v) map.setView([v[1], v[0]], v[2]); else map.fitBounds([[y0, x0], [y1, x1]]);
-  selected = null; $('#detail').hidden = true;
+  if (city) map.fitBounds(city.bounds, { padding: [10, 10] });
+  else if (v) map.setView([v[1], v[0]], v[2]);
+  else map.fitBounds([[y0, x0], [y1, x1]]);
   mode = D.live ? 'live' : D.events.length ? 'event:0' : 'custom';
   $('#custom').hidden = mode !== 'custom';
   renderModes();
@@ -499,6 +561,18 @@ async function loadRegion(slug) {
   try { localStorage.setItem('flood-demo-region', slug); } catch { /* storage unavailable */ }
 }
 document.querySelectorAll('.regions button').forEach((b) => b.onclick = () => loadRegion(b.dataset.r));
+function setBasemap(m) {
+  basemap = m;
+  $('#bm-sat').setAttribute('aria-pressed', m === 'sat');
+  $('#bm-terrain').setAttribute('aria-pressed', m === 'terrain');
+  try { localStorage.setItem('flood-demo-basemap', m); } catch { /* ignore */ }
+  if (D) { drawBase(); paint(); }
+}
+$('#bm-sat').onclick = () => setBasemap('sat');
+$('#bm-terrain').onclick = () => setBasemap('terrain');
+try { if (localStorage.getItem('flood-demo-basemap') === 'terrain') basemap = 'terrain'; } catch { /* ignore */ }
+$('#bm-sat').setAttribute('aria-pressed', basemap === 'sat');
+$('#bm-terrain').setAttribute('aria-pressed', basemap === 'terrain');
 
 const rethem = () => { if (!D) return; drawBase(); paint(); };
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', rethem);

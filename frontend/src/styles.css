@@ -213,3 +213,10 @@ th { font-size: 13px; color: var(--muted); font-weight: 500; }
 .region-tabs button { position: relative; border: 1px solid var(--border); background: var(--bg); border-radius: 999px; padding: 5px 14px; cursor: pointer; font-weight: 500; }
 .region-tabs button[aria-selected="true"] { background: var(--primary); color: var(--primary-text); border-color: transparent; }
 .region-tabs .dot { position: absolute; top: -2px; inset-inline-end: -2px; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--surface); }
+
+.basemap-toggle { position: absolute; top: 10px; right: 10px; z-index: 2; display: flex; gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; }
+.basemap-toggle button { border: 0; background: none; padding: 5px 12px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 13px; color: var(--muted); }
+.basemap-toggle button[aria-pressed="true"] { background: var(--primary); color: var(--primary-text); }
+.gmaps { display: flex; flex-wrap: wrap; gap: 6px; }
+.gmaps a { padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; color: var(--text); text-decoration: none; font-weight: 600; font-size: 13px; background: var(--bg); }
+.gmaps a:hover { border-color: var(--primary); }
