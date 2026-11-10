@@ -3,6 +3,8 @@ import mapboxgl from 'mapbox-gl';
 export const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 export const TILES_URL = import.meta.env.VITE_TILES_URL || 'http://localhost:3000';
 export const MAP_STYLE = 'mapbox://styles/mapbox/light-v11';
+// Valley data is from OpenStreetMap (ODbL) — attribution is required
+export const OSM_ATTRIBUTION = 'بيانات الأودية © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>';
 
 export const KSA_VIEW = { longitude: 45.0, latitude: 24.0, zoom: 4.6 };
 export const KSA_BOUNDS = [[34.4, 16.2], [55.8, 32.3]];

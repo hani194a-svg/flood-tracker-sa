@@ -10,7 +10,9 @@
     "migrate": "node scripts/migrate.js",
     "seed": "node scripts/migrate.js --seed",
     "create-admin": "node scripts/create-admin.js",
-    "test": "node --test --test-concurrency=1 \"test/**/*.test.js\""
+    "test": "node --test --test-concurrency=1 \"test/**/*.test.js\"",
+    "build:supabase-sql": "node scripts/build-supabase-sql.js",
+    "import:valleys": "node scripts/import-osm-valleys.js"
   },
   "engines": {
     "node": ">=20"

@@ -1,6 +1,13 @@
 -- 001_init.sql — core schema: users, valleys, reports
-CREATE EXTENSION IF NOT EXISTS postgis;
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- On Supabase, extensions live in the `extensions` schema (already on the search_path).
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'extensions') THEN
+    CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA extensions;
+  ELSE
+    CREATE EXTENSION IF NOT EXISTS postgis;
+  END IF;
+END $$;
 
 -- ───────────── users ─────────────
 CREATE TABLE IF NOT EXISTS public.users (

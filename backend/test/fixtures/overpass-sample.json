@@ -1,0 +1,19 @@
+{
+  "version": 0.6,
+  "generator": "test fixture (Overpass API format)",
+  "elements": [
+    { "type": "way", "id": 1001, "tags": { "waterway": "wadi", "name": "وادي الاختبار", "name:en": "Wadi Test" },
+      "geometry": [ { "lat": 24.100, "lon": 46.100 }, { "lat": 24.110, "lon": 46.110 } ] },
+    { "type": "way", "id": 1002, "tags": { "waterway": "wadi", "name": "وادي الاختبار", "name:en": "Wadi Test" },
+      "geometry": [ { "lat": 24.110, "lon": 46.110 }, { "lat": 24.120, "lon": 46.125 } ] },
+    { "type": "way", "id": 1003, "tags": { "waterway": "wadi", "name": "وادي الاختبار", "name:en": "Wadi Test" },
+      "geometry": [ { "lat": 21.000, "lon": 40.000 }, { "lat": 21.010, "lon": 40.010 } ] },
+    { "type": "way", "id": 1004, "tags": { "waterway": "river", "intermittent": "yes" },
+      "geometry": [ { "lat": 24.300, "lon": 46.300 }, { "lat": 24.310, "lon": 46.300 } ] },
+    { "type": "way", "id": 1005, "tags": { "waterway": "stream", "name": "Wadi English Only" },
+      "geometry": [ { "lat": 24.400, "lon": 46.400 }, { "lat": 24.410, "lon": 46.410 } ] },
+    { "type": "way", "id": 1006, "tags": { "waterway": "wadi" },
+      "geometry": [ { "lat": 24.500, "lon": 46.500 } ] },
+    { "type": "node", "id": 9, "lat": 24.0, "lon": 46.0 }
+  ]
+}

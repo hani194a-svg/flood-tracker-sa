@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import Map, { Marker, NavigationControl } from 'react-map-gl/mapbox';
 import ValleyLayers from './ValleyLayers.jsx';
-import { MAPBOX_TOKEN, MAP_STYLE, intensityColor } from '../lib/mapConfig.js';
+import { MAPBOX_TOKEN, intensityColor, OSM_ATTRIBUTION } from '../lib/mapConfig.js';
 import { ConfidenceBadge, StatusBadge } from './Badges.jsx';
 
 export default function MapPreviewModal({ report, onClose, onDecide }) {
@@ -25,6 +25,7 @@ export default function MapPreviewModal({ report, onClose, onDecide }) {
             initialViewState={{ longitude: report.longitude, latitude: report.latitude, zoom: 13 }}
             mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
             style={{ width: '100%', height: '100%' }}
+            customAttribution={OSM_ATTRIBUTION}
           >
             <NavigationControl position="top-left" />
             <ValleyLayers />

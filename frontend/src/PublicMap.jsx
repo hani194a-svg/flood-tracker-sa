@@ -5,7 +5,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import ValleyLayers from './components/ValleyLayers.jsx';
 import ReportForm from './components/ReportForm.jsx';
 import { api, socketUrl } from './lib/api.js';
-import { MAPBOX_TOKEN, MAP_STYLE, KSA_VIEW, KSA_BOUNDS, INTENSITY_COLORS } from './lib/mapConfig.js';
+import { MAPBOX_TOKEN, MAP_STYLE, KSA_VIEW, KSA_BOUNDS, INTENSITY_COLORS, OSM_ATTRIBUTION } from './lib/mapConfig.js';
 
 const toGeoJSON = (reports) => ({
   type: 'FeatureCollection',
@@ -22,6 +22,7 @@ export default function PublicMap() {
   const [draft, setDraft] = useState(null);      // { latitude, longitude } while composing a report
   const [popup, setPopup] = useState(null);
   const [toast, setToast] = useState(null);
+  const [tokenRejected, setTokenRejected] = useState(false);
 
   const loadViewport = useCallback(async () => {
     const map = mapRef.current?.getMap();
@@ -68,7 +69,7 @@ export default function PublicMap() {
     setTimeout(() => setToast(null), 6000);
   };
 
-  if (!MAPBOX_TOKEN) return <MissingToken />;
+  if (!MAPBOX_TOKEN || tokenRejected) return <MissingToken invalid={tokenRejected} />;
 
   return (
     <div className="public-map">
@@ -95,6 +96,12 @@ export default function PublicMap() {
         onMoveEnd={loadViewport}
         onClick={onClick}
         cursor={draft ? 'crosshair' : undefined}
+        customAttribution={OSM_ATTRIBUTION}
+        onError={(e) => {
+          // Mapbox answers 401 for a missing/invalid/URL-restricted token
+          if (e.error?.status === 401) setTokenRejected(true);
+          else console.error(e.error);
+        }}
       >
         <NavigationControl position="top-left" />
         <ValleyLayers />
@@ -149,11 +156,15 @@ export default function PublicMap() {
   );
 }
 
-export function MissingToken() {
+export function MissingToken({ invalid = false }) {
   return (
     <div className="missing-token">
-      <h2>مفتاح Mapbox غير موجود</h2>
-      <p>أضف <code>VITE_MAPBOX_TOKEN</code> إلى الملف <code>frontend/.env</code> ثم أعد تشغيل الخادم.</p>
+      <h2>{invalid ? 'مفتاح Mapbox مرفوض' : 'مفتاح Mapbox غير موجود'}</h2>
+      {invalid ? (
+        <p>رفضت Mapbox المفتاح. تأكد أنه مفتاح عام يبدأ بـ <code>pk.</code>، وأن نطاق هذا الموقع مسموح في قيود المفتاح (URL restrictions).</p>
+      ) : (
+        <p>أضف <code>VITE_MAPBOX_TOKEN</code> إلى الملف <code>frontend/.env</code> ثم أعد تشغيل الخادم.</p>
+      )}
     </div>
   );
 }

@@ -1,8 +1,8 @@
 -- Sample valley geometries for local development ONLY.
 -- Coordinates are rough approximations — replace with authoritative data
 -- (e.g. from the National Center for Meteorology / MEWA / OpenStreetMap waterway=wadi).
-INSERT INTO public.valleys (name_ar, name_en, geom)
-SELECT * FROM (VALUES
+INSERT INTO public.valleys (name_ar, name_en, geom, source)
+SELECT s.*, 'sample' FROM (VALUES
 ('وادي حنيفة', 'Wadi Hanifah', ST_Multi(ST_GeomFromText(
   'LINESTRING(46.560 24.960, 46.600 24.850, 46.640 24.760, 46.680 24.680, 46.720 24.600, 46.770 24.520, 46.830 24.450)', 4326))),
 ('وادي فاطمة', 'Wadi Fatimah', ST_Multi(ST_GeomFromText(
