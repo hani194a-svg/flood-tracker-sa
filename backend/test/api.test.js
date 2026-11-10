@@ -54,7 +54,7 @@ test('same user reporting the same spot twice is a duplicate', async () => {
   assert.equal(second.body.error, 'duplicate_report');
 });
 
-test('corroboration from independent reporters auto-verifies, admin sockets get live events + cluster alert', async () => {
+test('corroboration from independent reporters auto-verifies, admin sockets get live events + cluster alert', async (t) => {
   const admin = await makeUser('admin@x.com', 'admin');
   const users = await Promise.all([1, 2, 3, 4, 5].map((i) => makeUser(`u${i}@x.com`)));
 
@@ -66,6 +66,7 @@ test('corroboration from independent reporters auto-verifies, admin sockets get 
   sock.on('cluster:alert', (c) => events.alerts.push(c));
 
   const publicSock = ioClient(srv.url, { transports: ['websocket'] });
+  t.after(() => { sock.close(); publicSock.close(); });   // close even if an assertion fails
   await new Promise((r) => publicSock.on('connect', r));
   const publicVerified = [];
   publicSock.on('report:verified', (r) => publicVerified.push(r));
@@ -82,7 +83,9 @@ test('corroboration from independent reporters auto-verifies, admin sockets get 
 
   const { rows } = await pool.query('SELECT status, auto_verified, corroboration_count FROM reports ORDER BY id');
   assert.ok(rows.every((r) => r.status === 'verified' && r.auto_verified), JSON.stringify(rows));
-  assert.equal(rows[0].corroboration_count, 4);
+  // the first report auto-verifies once 3 others corroborate it (verified reports are not re-scored)
+  assert.ok(rows[0].corroboration_count >= 3);
+  assert.equal(rows.at(-1).corroboration_count, 4);
 
   assert.equal(events.new.length, 5);
   assert.ok(events.updated.length > 0, 'neighbours were re-scored and broadcast');
@@ -92,8 +95,6 @@ test('corroboration from independent reporters auto-verifies, admin sockets get 
   assert.ok(publicVerified.length >= 5);
   assert.equal(publicVerified[0].user_id, undefined);
 
-  sock.close();
-  publicSock.close();
 });
 
 test('admin review updates reporter trust; non-admins are blocked', async () => {

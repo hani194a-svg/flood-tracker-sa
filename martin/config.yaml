@@ -1,6 +1,8 @@
 # Martin vector tile server — https://maplibre.org/martin/
 #   GET /valleys/{z}/{x}/{y}            valley lines + Arabic names
 #   GET /verified_reports/{z}/{x}/{y}   verified reports from the last 48h (public-safe columns)
+#   GET /stream_risk/{z}/{x}/{y}        terrain-derived channels with the latest forecast level
+#   GET /flood_zones/{z}/{x}/{y}        flood-prone zones (≤ 3 m above the channel)
 listen_addresses: '0.0.0.0:3000'
 cache_size_mb: 256
 
@@ -23,7 +25,23 @@ postgres:
         name_ar: text
         name_en: text
 
+    flood_zones:
+      schema: public
+      table: flood_zones
+      srid: 4326
+      geometry_column: geom
+      geometry_type: MULTIPOLYGON
+      minzoom: 9
+      properties:
+        stream_id: int8
+        area_km2: numeric
+        built_up_km2: numeric
+
   functions:
+    stream_risk:
+      schema: public
+      function: stream_risk_tiles
+      minzoom: 6
     verified_reports:
       schema: public
       function: verified_reports_tiles

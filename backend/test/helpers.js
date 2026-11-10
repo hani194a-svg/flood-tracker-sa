@@ -32,6 +32,7 @@ export async function startServer() {
   const server = http.createServer();
   const realtime = Realtime.attach(server, '*');
   server.on('request', createApp({ realtime }));
+  await realtime.listenForecasts(pool);
   await new Promise((r) => server.listen(0, r));
   const url = `http://127.0.0.1:${server.address().port}`;
   return {

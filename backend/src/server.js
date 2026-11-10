@@ -7,6 +7,7 @@ import { pool } from './db.js';
 const server = http.createServer();
 const realtime = Realtime.attach(server, config.corsOrigins);
 server.on('request', createApp({ realtime }));
+realtime.listenForecasts(pool);
 
 // Periodic sweep so clusters that grow via admin actions or time are still caught
 const sweep = setInterval(() => realtime.checkClusters(), 60_000);

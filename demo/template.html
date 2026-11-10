@@ -1,0 +1,449 @@
+<title>رصد السيول</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>/*LEAFLET_CSS*/</style>
+<style>
+/* Layout: forecast console — control rail (start side) + full-height terrain map; stacks map-first on phones. */
+:root {
+  --bg: #eef2f4;
+  --surface: #ffffff;
+  --surface-2: #f3f6f8;
+  --fg: #0f1d27;
+  --muted: #5a6a76;
+  --line: #d6dfe5;
+  --accent: #0a6ea0;
+  --accent-fg: #ffffff;
+  --land: #ece6da;          /* Hejaz plain sand */
+  --sea: #b9d6e4;           /* Red Sea */
+  --built: #b9b1a3;
+  --shade-filter: none;
+  --chan: #3b82f6;
+  --l2: #d4a106; --l3: #ea6c0c; --l4: #d42020; --l5: #7c1fbf;
+  --rain: #0ea5e9;
+  --font: 'IBM Plex Sans Arabic', 'Segoe UI', Tahoma, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b141b; --surface: #101c25; --surface-2: #15242f; --fg: #e2ebf0; --muted: #93a3ae; --line: #22343f;
+    --accent: #52b6e6; --accent-fg: #071219; --land: #1d1c19; --sea: #0d2230; --built: #4a463f; --shade-filter: invert(1);
+    --chan: #5aa2f8; --l2: #f2c230; --l3: #ff8a3d; --l4: #ff5a52; --l5: #c37bff; --rain: #38bdf8;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b141b; --surface: #101c25; --surface-2: #15242f; --fg: #e2ebf0; --muted: #93a3ae; --line: #22343f;
+  --accent: #52b6e6; --accent-fg: #071219; --land: #1d1c19; --sea: #0d2230; --built: #4a463f; --shade-filter: invert(1);
+  --chan: #5aa2f8; --l2: #f2c230; --l3: #ff8a3d; --l4: #ff5a52; --l5: #c37bff; --rain: #38bdf8;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14.5px; line-height: 1.55; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+h1, h2 { margin: 0; text-wrap: balance; }
+
+.app { display: grid; grid-template-columns: 390px minmax(0, 1fr); height: 100%; }
+.rail { overflow-y: auto; background: var(--surface); border-inline-end: 1px solid var(--line); display: grid; gap: 14px; align-content: start;
+  padding-block: 16px 24px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.mapwrap { position: relative; min-width: 0; }
+#map { position: absolute; inset: 0; background: var(--land); }
+@media (max-width: 860px) {
+  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: 56vh auto; height: auto; }
+  .mapwrap { grid-row: 1; min-height: 56vh; }
+  .rail { grid-row: 2; border: 0; overflow: visible; }
+}
+
+.brand { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.brand h1 { font-size: 20px; }
+.pill { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); }
+.lede { margin: 2px 0 0; color: var(--muted); font-size: 13.5px; }
+
+.block { display: grid; gap: 8px; }
+.block > h2 { font-size: 15px; }
+.seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.seg button { text-align: start; border: 1px solid var(--line); background: var(--surface-2); border-radius: 9px; padding: 8px 10px; cursor: pointer; display: grid; gap: 1px; }
+.seg button small { color: var(--muted); font-size: 12px; }
+.seg button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--surface); }
+.custom { display: grid; gap: 8px; padding: 10px; border: 1px dashed var(--line); border-radius: 9px; }
+.custom label { display: grid; grid-template-columns: 7.5em 1fr 4.5em; gap: 8px; align-items: center; font-size: 13.5px; }
+.custom label.chk { grid-template-columns: auto 1fr; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+
+.clock { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.clock-head { display: flex; align-items: baseline; gap: 8px; }
+.clock-head strong { font-size: 16px; }
+.clock-head .tag { margin-inline-start: auto; font-size: 12px; color: var(--muted); }
+.clock-row { display: flex; gap: 8px; align-items: center; }
+.play { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); cursor: pointer; display: grid; place-items: center; }
+.play svg { width: 14px; height: 14px; fill: currentColor; }
+.counts { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; }
+.counts span { display: inline-flex; gap: 5px; align-items: center; }
+.sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+.alerts { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.alerts button { width: 100%; text-align: start; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; border: 1px solid var(--line); background: var(--surface); border-radius: 9px; padding: 8px 10px; cursor: pointer; }
+.alerts button:hover, .alerts button[aria-current="true"] { border-color: var(--accent); }
+.lv { grid-row: span 2; align-self: start; min-width: 54px; text-align: center; font-size: 12px; font-weight: 700; padding: 2px 6px; border-radius: 6px; color: #fff; }
+.alerts .sub { font-size: 12.5px; color: var(--muted); }
+.empty { color: var(--muted); font-size: 13.5px; margin: 0; }
+
+.detail { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; margin: 0; }
+.facts dt { font-size: 12px; color: var(--muted); }
+.facts dd { margin: 0; font-weight: 600; }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart .grid { stroke: var(--line); }
+.chart .tick { fill: var(--muted); font-size: 10px; font-family: var(--mono); }
+.chart .tickar { fill: var(--muted); font-size: 10px; font-family: var(--font); }
+.chart .bar { fill: var(--rain); }
+.chart .nowline { stroke: var(--fg); stroke-dasharray: 3 3; }
+.chart figcaption { font-size: 12px; color: var(--muted); }
+
+details { border-top: 1px solid var(--line); padding-top: 10px; }
+summary { cursor: pointer; font-weight: 600; }
+details ol, details ul { margin: 8px 0; padding-inline-start: 20px; display: grid; gap: 4px; font-size: 13.5px; }
+.src { font-size: 12.5px; color: var(--muted); }
+
+/* map chrome */
+.leaflet-container { font-family: var(--font); background: var(--land); }
+.hill { filter: var(--shade-filter); opacity: .55; }
+.place { background: transparent; border: 0; box-shadow: none; padding: 0; color: var(--fg); font-weight: 600; font-size: 12.5px;
+  text-shadow: 0 0 3px var(--land), 0 0 3px var(--land), 0 0 2px var(--land); }
+.place::before { display: none; }
+.leaflet-bar a { background: var(--surface); color: var(--fg); border-bottom-color: var(--line); }
+.legend { position: absolute; z-index: 500; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); right: 10px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 9px; padding: 8px 10px; font-size: 12.5px; display: grid; gap: 3px; }
+.legend span { display: flex; gap: 6px; align-items: center; }
+.legend i { width: 18px; height: 4px; border-radius: 2px; display: inline-block; }
+.legend i.zone { height: 10px; opacity: .45; }
+.attr { position: absolute; z-index: 500; bottom: calc(4px + env(safe-area-inset-bottom, 0px)); left: 8px; font-size: 10.5px; color: var(--muted);
+  background: color-mix(in srgb, var(--surface) 80%, transparent); padding: 1px 6px; border-radius: 4px; max-width: 60%; }
+@media (max-width: 860px) {
+  .legend { left: 8px; right: 8px; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 5px 8px; font-size: 11.5px; }
+  .legend i { width: 12px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="app">
+  <aside class="rail">
+    <div>
+      <div class="brand"><h1>توقعات السيول · جدة</h1><span class="pill">نموذج تجريبي</span></div>
+      <p class="lede">مستوى خطر كل وادٍ ساعة بساعة، محسوب من المطر المتوقع وتضاريس الأرض ونوع سطحها. البيانات حقيقية والحساب يجري في متصفحك.</p>
+    </div>
+
+    <section class="block">
+      <h2>الفترة</h2>
+      <div class="seg" id="modes">
+        <button data-m="live" aria-pressed="true"><span>التوقعات الحالية</span><small id="live-sub">Open-Meteo</small></button>
+        <button data-m="jeddah-2009" aria-pressed="false"><span>سيول 2009</span><small>90 ملم في 4 ساعات</small></button>
+        <button data-m="jeddah-2022" aria-pressed="false"><span>أمطار 2022</span><small>179 ملم في 6 ساعات</small></button>
+        <button data-m="custom" aria-pressed="false"><span>سيناريو من اختيارك</span><small id="custom-sub">60 ملم في 3 ساعات</small></button>
+      </div>
+      <div class="custom" id="custom" hidden>
+        <label>كمية المطر <input type="range" id="c-mm" min="5" max="200" step="5" value="60"><span class="num" id="c-mm-v">60 ملم</span></label>
+        <label>المدة <input type="range" id="c-h" min="1" max="12" step="1" value="3"><span class="num" id="c-h-v">3 س</span></label>
+        <label class="chk"><input type="checkbox" id="c-wet"> التربة مشبعة من أمطار قبل يومين (40 ملم)</label>
+      </div>
+    </section>
+
+    <section class="clock" aria-live="polite">
+      <div class="clock-head"><strong id="clock-time"></strong><span class="tag" id="clock-tag"></span></div>
+      <div class="clock-row">
+        <button class="play" id="play" aria-label="تشغيل"><svg viewBox="0 0 10 10" id="play-ico"><path d="M2 1l7 4-7 4z"/></svg></button>
+        <input type="range" id="hour" min="0" max="0" value="0" aria-label="الساعة">
+      </div>
+      <div class="counts" id="counts"></div>
+    </section>
+
+    <section class="block">
+      <h2 id="alerts-title">أخطر الأودية في هذه الفترة</h2>
+      <ul class="alerts" id="alerts"></ul>
+    </section>
+
+    <section class="detail" id="detail" hidden></section>
+
+    <details>
+      <summary>كيف يُحسب الخطر</summary>
+      <ol>
+        <li>من نموذج الارتفاعات (دقة 30 م) حسبنا اتجاه جريان الماء في كل خلية، فظهرت 2,460 قناة وحوض كل منها. نعرض هنا القنوات التي يصب فيها 3 كم² أو أكثر.</li>
+        <li>لكل ساعة: متوسط المطر على كامل الحوض خلال نافذة تساوي «زمن وصول المياه» إلى مخرجه (معادلة Kirpich).</li>
+        <li>الجريان السطحي بطريقة رقم المنحنى (SCS-CN): الصخر العاري والإسفلت يجريان أكثر، والرمل يمتص. أمطار الأيام الخمسة السابقة تغيّر رطوبة التربة.</li>
+        <li>الذروة بالمتر المكعب في الثانية (المدرج المثلثي لـ SCS)، ثم المستوى: الأعلى بين تصنيف الذروة وتصنيف عمق الجريان، ويُرفع درجة إن كانت في منطقة الخطر مبانٍ.</li>
+        <li>منطقة الخطر: الأرض المنخفضة حتى 3 م فوق القناة (HAND).</li>
+      </ol>
+      <ul class="src">
+        <li>لا يحتسب السدود وقنوات التصريف التي أُنشئت بعد 2011، ولا شبكات تصريف الشوارع.</li>
+        <li>السيناريوهات التاريخية توزّع المطر بالتساوي على المنطقة، والعواصف الحقيقية متفاوتة.</li>
+        <li>أحواض قليلة تمتد خارج حدود المنطقة (مثل وادي فاطمة)، فيُقدَّر خطرها بأقل من الحقيقي.</li>
+      </ul>
+      <p class="src">المصادر: الارتفاعات Copernicus GLO-30 · الغطاء الأرضي ESA WorldCover 2021 · الطقس Open-Meteo · أمطار 2009 و2022 من تقارير الأرصاد.</p>
+    </details>
+  </aside>
+
+  <div class="mapwrap">
+    <div id="map" dir="ltr" aria-label="خريطة أودية جدة ومستوى الخطر"></div>
+    <div class="legend" aria-hidden="true">
+      <span><i style="background:var(--l5)"></i>شديد</span>
+      <span><i style="background:var(--l4)"></i>مرتفع</span>
+      <span><i style="background:var(--l3)"></i>متوسط</span>
+      <span><i style="background:var(--l2)"></i>منخفض</span>
+      <span><i style="background:var(--chan);opacity:.5"></i>لا خطر</span>
+      <span><i class="zone" style="background:var(--l4)"></i>منطقة غمر محتملة</span>
+    </div>
+    <div class="attr">Copernicus DEM · ESA WorldCover · Open-Meteo</div>
+  </div>
+</div>
+
+<script id="data" type="application/json">/*DATA*/</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+(() => {
+'use strict';
+/*MODEL*/
+
+const D = JSON.parse(document.getElementById('data').textContent);
+const $ = (s) => document.querySelector(s);
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const LV = { 1: 'لا خطر يُذكر', 2: 'منخفض', 3: 'متوسط', 4: 'مرتفع', 5: 'شديد' };
+const lvColor = (l) => l > 1 ? css('--l' + l) : css('--chan');
+const H = 3.6e6;
+const fmtT = (ms) => new Date(ms).toLocaleString('ar-SA', { timeZone: 'Asia/Riyadh', weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' });
+const fmtShort = (ms) => new Date(ms).toLocaleString('ar-SA', { timeZone: 'Asia/Riyadh', weekday: 'short', hour: 'numeric' });
+
+const SCEN = {
+  'jeddah-2009': { start: Date.UTC(2009, 10, 25, 5), hy: [15, 35, 28, 12], tag: 'سيول جدة · 25 نوفمبر 2009' },
+  'jeddah-2022': { start: Date.UTC(2022, 10, 24, 5), hy: [12, 30, 45, 48, 30, 14], tag: 'أمطار جدة · 24 نوفمبر 2022' },
+};
+
+// ───── inputs for each mode → { rain: Float64Array[] per point, nAnt, t0 (ms of first forecast hour), tag, live } ─────
+function inputs(mode) {
+  const P = D.rain_points.length;
+  if (mode === 'live' && D.live) {
+    const rain = D.live.rain.map((r) => Float64Array.from(r));
+    const nAnt = D.live.history_h;
+    return { rain, nAnt, t0: Date.parse(D.live.t0) + nAnt * H, tag: 'توقعات', live: true };
+  }
+  let hy, start, ant = 0, tag;
+  if (mode === 'custom') {
+    const mm = +$('#c-mm').value, hrs = +$('#c-h').value;
+    // symmetric storm: peaks in the middle, weights 1..k..1
+    const w = Array.from({ length: hrs }, (_, i) => Math.min(i + 1, hrs - i));
+    const tot = w.reduce((a, b) => a + b, 0);
+    hy = w.map((x) => (mm * x) / tot);
+    start = Date.UTC(2026, 0, 1, 9);
+    ant = $('#c-wet').checked ? 40 : 0;
+    tag = 'سيناريو افتراضي';
+  } else {
+    ({ hy, start, tag } = SCEN[mode]);
+  }
+  const nAnt = 120, len = nAnt + hy.length + 12;
+  const s = new Float64Array(len);
+  hy.forEach((v, i) => (s[nAnt + i] = v));
+  if (ant) for (let i = 0; i < 8; i++) s[nAnt - 52 + i] = ant / 8;   // wet spell two days earlier
+  return { rain: Array.from({ length: P }, () => s), nAnt, t0: start, tag, live: false, hy };
+}
+
+// ───── state ─────
+let mode = 'live', inp = null, res = null, hour = 0, nHours = 0, selected = null, timer = null;
+const idxById = new Map(D.streams.map((s, i) => [s.id, i]));
+
+function levelsAt(h) {
+  // a reach's level at clock hour h is its level for the rain hour whose peak lands at h
+  const out = new Int8Array(D.streams.length).fill(1);
+  res.forEach((r, i) => { const k = h - r.off; if (k >= 0 && k < r.level.length) out[i] = r.level[k]; });
+  return out;
+}
+function compute() {
+  inp = inputs(mode);
+  res = runModel(inp.rain, D.streams, inp.nAnt);
+  const maxOff = Math.max(...res.map((r) => r.off));
+  nHours = res[0].level.length + maxOff;
+  $('#hour').max = nHours - 1;
+  if (inp.live) {
+    hour = Math.min(nHours - 1, Math.max(0, Math.round((Date.now() - inp.t0) / H)));
+  } else {
+    // open on the hour with the most high-risk reaches
+    let best = 0, bestN = -1;
+    for (let h = 0; h < nHours; h++) { const n = levelsAt(h).filter((l) => l >= 4).length; if (n > bestN) { bestN = n; best = h; } }
+    hour = best;
+  }
+  $('#hour').value = hour;
+  renderAlerts();
+  paint();
+  if (selected != null) renderDetail(selected);
+}
+
+// ───── map ─────
+const map = L.map('map', { zoomSnap: 0.5, minZoom: 8.5, maxZoom: 15, attributionControl: false, preferCanvas: true,
+  maxBounds: [[D.region.bbox[1] - 0.15, D.region.bbox[0] - 0.25], [D.region.bbox[3] + 0.15, D.region.bbox[2] + 0.25]] });
+map.fitBounds([[21.35, 39.08], [21.80, 39.62]]);
+const canvas = L.canvas({ padding: 0.3, tolerance: 6 });
+const geoToLL = (g) => g.type === 'LineString' ? g.coordinates.map(([x, y]) => [y, x]) : g.coordinates.map((l) => l.map(([x, y]) => [y, x]));
+const polyLL = (g) => (g.type === 'Polygon' ? [g.coordinates] : g.coordinates).map((p) => p.map((r) => r.map(([x, y]) => [y, x])));
+
+let seaL, builtL, hill;
+const zoneLayers = new Map();
+const lines = D.streams.map((s, i) => L.polyline(geoToLL(s.g), { renderer: canvas, weight: 1, lineCap: 'round', lineJoin: 'round', interactive: true })
+  .on('click', () => select(s.id, false)));
+const width = (a) => (a < 5 ? 1 : a < 20 ? 1.6 : a < 100 ? 2.6 : a < 400 ? 4 : 5.5);
+
+function drawBase() {
+  [seaL, builtL, hill].forEach((l) => l && l.remove());
+  hill = L.imageOverlay(D.hillshade.url, D.hillshade.bounds, { className: 'hill', interactive: false }).addTo(map);
+  builtL = L.polygon(polyLL(D.built), { renderer: canvas, stroke: false, fillColor: css('--built'), fillOpacity: 0.55, interactive: false }).addTo(map);
+  seaL = L.polygon(polyLL(D.sea), { renderer: canvas, stroke: false, fillColor: css('--sea'), fillOpacity: 1, interactive: false }).addTo(map);
+  for (const z of D.zones) {
+    zoneLayers.get(z.s)?.remove();
+    zoneLayers.set(z.s, L.polygon(polyLL(z.g), { renderer: canvas, stroke: false, fillOpacity: 0, interactive: false }).addTo(map));
+  }
+  lines.forEach((l) => l.addTo(map));
+}
+// Approximate district positions, for orientation only
+const PLACES = [['البلد', 21.485, 39.187], ['قويزة', 21.445, 39.268], ['جامعة الملك عبدالعزيز', 21.495, 39.240], ['المطار', 21.68, 39.16],
+  ['أبحر', 21.755, 39.125], ['الكورنيش', 21.59, 39.108], ['الحمدانية', 21.765, 39.215], ['الصواعد', 21.525, 39.29], ['وادي فاطمة', 21.37, 39.56]];
+for (const [n, lat, lng] of PLACES) L.circleMarker([lat, lng], { radius: 0, stroke: false, fill: false, interactive: false })
+  .bindTooltip(n, { permanent: true, direction: 'center', className: 'place' }).addTo(map);
+
+// nearest named place to a reach's outlet (for readable alert titles)
+function nearPlace(s) {
+  const c = s.g.coordinates.at(-1), k = Math.cos(c[1] * Math.PI / 180);
+  let best = null;
+  for (const [n, lat, lng] of PLACES) {
+    const d = Math.hypot((lng - c[0]) * k, lat - c[1]) * 111;
+    if (!best || d < best.d) best = { n, d };
+  }
+  return best && best.d <= 7 ? (best.d < 1.5 ? `عند ${best.n}` : `قرب ${best.n}`) : null;
+}
+
+function paint() {
+  const lv = levelsAt(hour);
+  const chan = css('--chan');
+  lines.forEach((l, i) => {
+    const v = lv[i], s = D.streams[i];
+    l.setStyle({ color: v > 1 ? css('--l' + v) : chan, opacity: v > 1 ? 1 : 0.4, weight: width(s.a) + (v >= 4 ? 1.5 : 0) });
+    if (v >= 3) l.bringToFront();
+  });
+  for (const [sid, layer] of zoneLayers) {
+    const v = lv[idxById.get(sid)] || 1;
+    layer.setStyle({ fillColor: v >= 3 ? css('--l' + v) : 'transparent', fillOpacity: v >= 4 ? 0.42 : v === 3 ? 0.22 : 0 });
+  }
+  const t = inp.t0 + hour * H;
+  $('#clock-time').textContent = fmtT(t);
+  $('#clock-tag').textContent = inp.live ? (t > Date.now() ? 'متوقع' : 'رُصد') : inp.tag;
+  const c = { 5: 0, 4: 0, 3: 0, 2: 0 };
+  lv.forEach((v) => v > 1 && c[v]++);
+  $('#counts').innerHTML = [5, 4, 3, 2].map((l) => `<span><i class="sw" style="background:var(--l${l})"></i>${LV[l]} <b class="num">${c[l]}</b></span>`).join('');
+  if (selected != null) drawChartNow();
+}
+
+// ───── alerts: worst reaches over the whole period, one per drainage line ─────
+function renderAlerts() {
+  const maxL = res.map((r) => Math.max(1, ...r.level));
+  const maxP = res.map((r) => Math.max(0, ...r.peak));
+  const items = D.streams.map((s, i) => ({ s, i, l: maxL[i], p: maxP[i] }))
+    .filter((x) => x.l >= 3)
+    .filter((x) => { const d = x.s.d != null ? idxById.get(x.s.d) : null; return d == null || maxL[d] < x.l; })
+    .sort((a, b) => b.l - a.l || b.p - a.p).slice(0, 12);
+  $('#alerts-title').textContent = items.length ? 'أخطر الأودية في هذه الفترة' : 'التنبيهات';
+  $('#alerts').innerHTML = items.length ? items.map(({ s, i, l, p }) => {
+    const k = res[i].level.indexOf(l);
+    return `<li><button data-id="${s.id}" aria-current="${selected === s.id}">
+      <span class="lv" style="background:var(--l${l})">${LV[l]}</span>
+      <strong>${nearPlace(s) ? nearPlace(s) + ' · ' : ''}حوض <span class="num">${s.a < 10 ? s.a.toFixed(1) : Math.round(s.a)}</span> كم²</strong>
+      <span class="sub">ذروة <span class="num">${Math.round(p)}</span> م³/ث · ${fmtShort(inp.t0 + (k + res[i].off) * H)}${s.b >= 0.05 ? ' · مبانٍ مهددة' : ''}${s.t ? ' · الحوض أكبر من المنطقة' : ''}</span>
+    </button></li>`;
+  }).join('') : `<li><p class="empty">لا توجد أودية بخطر متوسط أو أعلى في هذه الفترة.${inp.live ? ' جرّب «سيول 2009» لترى كيف يبدو الخطر.' : ''}</p></li>`;
+  document.querySelectorAll('#alerts button').forEach((b) => b.onclick = () => select(+b.dataset.id, true));
+}
+
+// ───── detail + chart ─────
+function select(id, fly) {
+  selected = id;
+  const i = idxById.get(id), s = D.streams[i];
+  if (fly) {
+    const ll = geoToLL(s.g);
+    map.flyToBounds(L.latLngBounds(ll).pad(1.2), { maxZoom: 13.5, duration: 0.8 });
+  }
+  document.querySelectorAll('#alerts button').forEach((b) => b.setAttribute('aria-current', +b.dataset.id === id));
+  renderDetail(id);
+}
+function renderDetail(id) {
+  const i = idxById.get(id), s = D.streams[i], r = res[i];
+  const el = $('#detail');
+  el.hidden = false;
+  const lmax = Math.max(1, ...r.level);
+  el.innerHTML = `<h2>${nearPlace(s) || 'المجرى المحدد'} · <span style="color:var(--l${lmax > 1 ? lmax : 2})">${LV[lmax]}</span></h2>
+    <dl class="facts">
+      <div><dt>مساحة الحوض</dt><dd><span class="num">${s.a.toFixed(1)}</span> كم²</dd></div>
+      <div><dt>زمن وصول المياه</dt><dd><span class="num">${s.tc.toFixed(1)}</span> ساعة</dd></div>
+      <div><dt>أعلى ذروة</dt><dd><span class="num">${Math.round(Math.max(...r.peak))}</span> م³/ث</dd></div>
+      <div><dt>مبانٍ في منطقة الغمر</dt><dd><span class="num">${Math.round(s.b * 100)}</span> هكتار</dd></div>
+      <div><dt>رقم المنحنى</dt><dd><span class="num">${Math.round(s.cn)}</span> <span class="muted">(${s.cn >= 88 ? 'صخري/عمراني' : s.cn >= 80 ? 'مختلط' : 'رملي'})</span></dd></div>
+      <div><dt>أعلى جريان</dt><dd><span class="num">${Math.round(Math.max(...r.runoff))}</span> ملم</dd></div>
+    </dl>
+    <figure class="chart" style="margin:0"><svg id="chart" viewBox="0 0 360 150" dir="ltr" role="img" aria-label="المطر على الحوض ومستوى الخطر"></svg>
+    <figcaption>الأعمدة: المطر على كامل الحوض (ملم/ساعة). الشريط: مستوى الخطر وقت الذروة.</figcaption></figure>`;
+  drawChartNow();
+}
+function drawChartNow() {
+  const svg = $('#chart'); if (!svg) return;
+  const i = idxById.get(selected), r = res[i];
+  const W = 360, Hh = 150, L0 = 30, R0 = 6, T0 = 8, band = 12, B0 = 22;
+  const n = nHours, x = (h) => L0 + (h / n) * (W - L0 - R0), bw = Math.max(1, (W - L0 - R0) / n - 0.5);
+  const basin = Array.from({ length: n }, (_, h) => r.basin[inp.nAnt + h] || 0);
+  const mx = Math.max(5, ...basin), ch = Hh - T0 - B0 - band - 6;
+  const y = (v) => T0 + ch - (v / mx) * ch;
+  const lv = Array.from({ length: n }, (_, h) => { const k = h - r.off; return k >= 0 && k < r.level.length ? r.level[k] : 1; });
+  const ticks = [0, mx / 2, mx].map((v) => Math.round(v));
+  let s = ticks.map((v) => `<line class="grid" x1="${L0}" x2="${W - R0}" y1="${y(v)}" y2="${y(v)}"/><text class="tick" x="${L0 - 3}" y="${y(v) + 3}" text-anchor="end">${v}</text>`).join('');
+  s += basin.map((v, h) => v > 0.05 ? `<rect class="bar" x="${x(h)}" y="${y(v)}" width="${bw}" height="${y(0) - y(v)}"/>` : '').join('');
+  s += `<rect x="${L0}" y="${Hh - B0 - band}" width="${W - L0 - R0}" height="${band}" fill="${css('--chan')}" opacity=".18"/>`;
+  s += lv.map((l, h) => l > 1 ? `<rect x="${x(h)}" y="${Hh - B0 - band}" width="${bw + 0.5}" height="${band}" fill="${css('--l' + l)}"/>` : '').join('');
+  s += `<line class="nowline" x1="${x(hour) + bw / 2}" x2="${x(hour) + bw / 2}" y1="${T0}" y2="${Hh - B0}"/>`;
+  const step = n > 48 ? 24 : n > 18 ? 6 : 3;
+  for (let h = 0; h < n; h += step) s += `<text class="tickar" x="${x(h)}" y="${Hh - 6}">${fmtShort(inp.t0 + h * H)}</text>`;
+  svg.innerHTML = s;
+}
+
+// ───── controls ─────
+document.querySelectorAll('#modes button').forEach((b) => b.onclick = () => {
+  mode = b.dataset.m;
+  document.querySelectorAll('#modes button').forEach((x) => x.setAttribute('aria-pressed', x === b));
+  $('#custom').hidden = mode !== 'custom';
+  stop(); compute();
+});
+const syncCustom = () => {
+  $('#c-mm-v').textContent = `${$('#c-mm').value} ملم`;
+  $('#c-h-v').textContent = `${$('#c-h').value} س`;
+  $('#custom-sub').textContent = `${$('#c-mm').value} ملم في ${$('#c-h').value} ساعات`;
+};
+['#c-mm', '#c-h', '#c-wet'].forEach((s) => $(s).addEventListener('input', () => { syncCustom(); if (mode === 'custom') compute(); }));
+$('#hour').addEventListener('input', (e) => { hour = +e.target.value; paint(); });
+function stop() { clearInterval(timer); timer = null; $('#play-ico').innerHTML = '<path d="M2 1l7 4-7 4z"/>'; $('#play').setAttribute('aria-label', 'تشغيل'); }
+$('#play').onclick = () => {
+  if (timer) return stop();
+  if (hour >= nHours - 1) hour = 0;
+  $('#play-ico').innerHTML = '<path d="M2 1h2v8H2zM6 1h2v8H6z"/>'; $('#play').setAttribute('aria-label', 'إيقاف');
+  timer = setInterval(() => { hour++; $('#hour').value = hour; paint(); if (hour >= nHours - 1) stop(); }, 350);
+};
+
+if (D.live) $('#live-sub').textContent = 'صدرت ' + new Date(D.live.issued).toLocaleString('ar-SA', { timeZone: 'Asia/Riyadh', day: 'numeric', month: 'short', hour: 'numeric' });
+else { $('#modes [data-m=live]').disabled = true; mode = 'jeddah-2009'; }
+
+const rethem = () => { drawBase(); paint(); };
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', rethem);
+new MutationObserver(rethem).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+drawBase();
+syncCustom();
+compute();
+})();
+</script>

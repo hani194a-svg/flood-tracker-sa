@@ -1,16 +1,67 @@
 # رصد السيول — Flood Tracker KSA
 
-منصة لرصد السيول لحظيًا في المملكة العربية السعودية عبر بلاغات المواطنين، مع محرك تحقق تلقائي يعتمد على الموقع الجغرافي للأودية وتقاطع البلاغات وسجل موثوقية المُبلِّغ.
+منصة **للتنبؤ بالسيول** في المملكة العربية السعودية من **الطقس المتوقع وتضاريس الأرض ونوع سطحها**، مع بلاغات المواطنين كإشارة ثانوية تؤكد الحدث وتساعد في معايرة النموذج. المنطقة التجريبية الأولى: **جدة**.
 
-A real-time, crowdsourced flood reporting platform for Saudi Arabia, with an automatic verification engine built on PostGIS.
+Flood forecasting for Saudi Arabia from weather forecasts, terrain and land cover, with citizen reports as a secondary signal. Pilot region: Jeddah.
 
 ---
+
+## كيف يعمل التنبؤ
+
+```
+مرة واحدة لكل منطقة (analysis/terrain.py)                  كل 1–3 ساعات (analysis/forecast.py)
+───────────────────────────────────────                  ─────────────────────────────────────
+Copernicus DEM 30 م ─┐                                   Open-Meteo: أمطار كل ساعة (5 أيام سابقة + 3 قادمة)
+ESA WorldCover ──────┤→ اتجاه الجريان، القنوات            │
+                     │  وأحواضها، زمن وصول المياه         ▼
+                     │  رقم المنحنى (صخر/رمل/عمران)     مطر الحوض خلال نافذة زمن الوصول
+                     │  مناطق الغمر (HAND ≤ 3 م)        ← رطوبة التربة من الأيام الخمسة
+                     └→ PostGIS (load_db.py)              ← جريان SCS-CN ← الذروة م³/ث
+                                                          ← مستوى 1–5 (+1 إن وُجدت مبانٍ في منطقة الغمر)
+                                                          → PostGIS + NOTIFY → Socket.io → الخريطة
+```
+
+| العامل | المصدر | أثره |
+|---|---|---|
+| المطر المتوقع والسابق | Open-Meteo (ECMWF/GFS/ICON) | كمية المطر على كامل الحوض، ورطوبة التربة |
+| التضاريس | Copernicus GLO-30 | مسارات الأودية، مساحة الحوض، الانحدار، سرعة وصول الماء، الأراضي المنخفضة |
+| نوع السطح | ESA WorldCover 2021 | الصخر والإسفلت يجريان، والرمل يمتص (رقم المنحنى) |
+| التعرّض | WorldCover (مناطق عمرانية) | رفع درجة الخطر حين تقع مبانٍ في منطقة الغمر |
+| بلاغات المواطنين | التطبيق | تأكيد الحدث؛ والتوقع نفسه يرفع ثقة البلاغ المتوافق معه |
+
+**اختبار على أحداث حقيقية** (`forecast.py --scenario`):
+
+| الحدث | النتيجة قرب الأحياء التي غرقت | النتيجة في أحياء لم تغرق |
+|---|---|---|
+| جدة 25 نوفمبر 2009 (90 ملم / 4 س) | قويزة وأم الخير: **شديد**، ذروة 170–230 م³/ث | الكورنيش والروضة: متوسط، 6–11 م³/ث |
+| زخة خفيفة (14 ملم / 3 س) | لا خطر في أي قناة | — |
+
+**حدود النموذج:** نموذج فرز سريع (على غرار Flash Flood Guidance)، وليس محاكاة هيدروليكية. لا يحتسب السدود وقنوات التصريف التي أُنشئت بعد 2011 ولا شبكات تصريف الشوارع. السيناريوهات التاريخية توزّع المطر بالتساوي. وبعض الأحواض (مثل وادي فاطمة) تمتد خارج المنطقة فيُقدَّر خطرها بأقل من الحقيقي. **قبل الاستخدام العام يلزم معايرته بأحداث موثّقة أكثر.**
+
+### تشغيل التنبؤ
+
+```bash
+pip install -r analysis/requirements.txt
+# 1) نزّل بلاطة الارتفاعات والغطاء الأرضي للمنطقة إلى analysis/data/raw/
+#    https://copernicus-dem-30m.s3.amazonaws.com/Copernicus_DSM_COG_10_N21_00_E039_00_DEM/Copernicus_DSM_COG_10_N21_00_E039_00_DEM.tif → dem_N21E039.tif
+#    https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N21E039_Map.tif → wc_N21E039.tif
+python analysis/terrain.py                     # ~1 دقيقة لجدة → analysis/data/out/jeddah/
+DATABASE_URL=… python analysis/load_db.py      # تحميل القنوات والأحواض ومناطق الغمر
+DATABASE_URL=… python analysis/forecast.py     # توقع حي (جدوله كل 1–3 ساعات)
+DATABASE_URL=… python analysis/forecast.py --scenario jeddah-2009   # إعادة تشغيل حدث تاريخي
+python -m unittest discover -s analysis/tests  # اختبارات معادلات الهيدرولوجيا
+```
+
+لتغيير المنطقة عدّل `REGION` في `analysis/config.py`. حد Open-Meteo المجاني نحو 10,000 طلب يوميًا، وكل نقطة مطر تُحتسب طلبًا (168 نقطة لجدة)، فالتشغيل كل ساعتين آمن.
+
+**نسخة تجريبية بدون خادم:** `analysis/export_demo.py` ثم `demo/build.py` يُنتجان صفحة HTML واحدة تشغّل النموذج نفسه في المتصفح (`demo/model.js` منقول سطرًا بسطر من `analysis/hydrology.py`).
 
 ## المكوّنات
 
 | الجزء | التقنية | المجلد |
 |---|---|---|
 | قاعدة البيانات | PostgreSQL + PostGIS (Supabase) | `db/` |
+| التحليل والتنبؤ | Python: rasterio + pysheds + numpy | `analysis/` |
 | الخادم | Node.js + Express + Socket.io | `backend/` |
 | خادم البلاطات | Martin (Rust) | `martin/` |
 | الواجهة | React + react-map-gl + Mapbox GL JS | `frontend/` |
@@ -26,15 +77,16 @@ A real-time, crowdsourced flood reporting platform for Saudi Arabia, with an aut
 Martin ◀── PostGIS: valleys + verified_reports ──▶ بلاطات MVT للخريطة
 ```
 
-## محرك التحقق
+## التحقق من البلاغات (إشارة ثانوية)
 
 كل بلاغ يحصل على **درجة ثقة من 0 إلى 100**، تُحسب داخل قاعدة البيانات (`db/migrations/002_verification.sql`):
 
 | الإشارة | الوزن | كيف تُحسب |
 |---|---|---|
-| القرب من وادٍ | 40 | `ST_Distance` على نوع geography لأقرب وادٍ (بحث KNN بالفهرس). كامل الدرجة داخل 500 م، وتتناقص خطيًا حتى 2000 م |
-| بلاغات داعمة | 35 | عدد **المُبلِّغين المستقلين** (لا يُحتسب المستخدم نفسه) ضمن 1 كم و±60 دقيقة، دون البلاغات المرفوضة. 4 مُبلِّغين = الدرجة كاملة |
-| ثقة المُبلِّغ | 25 | `users.trust_score`، والمجهول = 0.3 |
+| توقع الخطر في المكان والوقت | 25 | أعلى مستوى خطر لقناة ضمن 1 كم و±3 ساعات من آخر توقع. خارج مناطق التنبؤ يُوزَّع وزنه على البقية |
+| القرب من وادٍ | 30 | `ST_Distance` على نوع geography لأقرب وادٍ (بحث KNN بالفهرس). كامل الدرجة داخل 500 م، وتتناقص خطيًا حتى 2000 م |
+| بلاغات داعمة | 30 | عدد **المُبلِّغين المستقلين** (لا يُحتسب المستخدم نفسه) ضمن 1 كم و±60 دقيقة، دون البلاغات المرفوضة. 4 مُبلِّغين = الدرجة كاملة |
+| ثقة المُبلِّغ | 15 | `users.trust_score`، والمجهول = 0.3 |
 
 - **اعتماد تلقائي** عند 80 فأكثر. وعند وصول بلاغ جديد يُعاد حساب البلاغات المجاورة المعلّقة لأن عدد البلاغات الداعمة لها تغيّر.
 - **درجة الثقة للمستخدم** تُحدَّث بالتنعيم البايزي: `(معتمد + 2) / (معتمد + مرفوض + 4)`. المستخدم الجديد يبدأ من 0.5. **قرارات المشرف اليدوية فقط** تؤثر في الدرجة، أما الاعتماد التلقائي فلا، حتى لا تتكوّن حلقة تغذية ذاتية. وإذا غيّر المشرف قراره يُلغى أثر القرار السابق.
@@ -113,14 +165,20 @@ cd frontend && cp .env.example .env && npm install && npm run dev
 | POST | `/api/reports` | عام (JWT اختياري) | إرسال بلاغ ← يُقيَّم فورًا |
 | GET | `/api/reports/viewport?bbox=minLng,minLat,maxLng,maxLat` | عام / مشرف | بلاغات الشاشة الحالية (العام يرى المعتمدة فقط، والمشرف يستخدم `&status=pending,verified`) |
 | GET | `/api/reports?status=&search=&sort=confidence` | مشرف | قائمة البلاغات |
+| GET | `/api/forecast/runs?kind=forecast\|scenario\|archive` | عام | عمليات التنبؤ |
+| GET | `/api/forecast/regions/:slug/streams.geojson` | عام | شبكة القنوات (ثابتة، مع ETag) |
+| GET | `/api/forecast/runs/:run/levels` | عام | مستوى كل قناة لكل ساعة (`:run` = رقم أو `latest`) |
+| GET | `/api/forecast/runs/:run/alerts?minLevel=4` | عام | أخطر القنوات، واحدة لكل مسار تصريف |
+| GET | `/api/forecast/runs/:run/zones.geojson` | عام | مناطق الغمر للقنوات الخطرة |
+| GET | `/api/forecast/runs/:run/streams/:id` | عام | مطر الحوض والخطر لكل ساعة (للرسم البياني) |
 | GET | `/api/reports/clusters` | مشرف | التجمّعات النشطة |
 | PATCH | `/api/reports/:id/status` | مشرف | `{ "status": "verified" \| "rejected" }` |
 
 **أحداث Socket.io**
 - غرفة المشرفين (`auth: { token }`): ‏`report:new`، ‏`report:updated`، ‏`cluster:alert`
-- الجميع: ‏`report:verified`، ‏`report:removed` (حقول عامة فقط)
+- الجميع: ‏`report:verified`، ‏`report:removed` (حقول عامة فقط)، ‏`forecast:updated`، ‏`forecast:alert` (توقع حي بمستوى 4 أو أعلى)
 
-**Martin**: ‏`/valleys/{z}/{x}/{y}` و `/verified_reports/{z}/{x}/{y}`
+**Martin**: ‏`/valleys`، ‏`/verified_reports`، ‏`/stream_risk` (القنوات بآخر مستوى خطر)، ‏`/flood_zones`
 
 ## الاختبارات
 

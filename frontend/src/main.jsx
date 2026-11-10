@@ -3,9 +3,10 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const PublicMap = lazy(() => import('./PublicMap.jsx'));
+const RiskMap = lazy(() => import('./RiskMap.jsx'));
 const AdminDashboard = lazy(() => import('./AdminDashboard.jsx'));
 
-// Minimal hash router: #/ → public map, #/admin → dashboard
+// Minimal hash router: #/ → flood forecast, #/reports → citizen reports, #/admin → dashboard
 function App() {
   const [route, setRoute] = useState(window.location.hash);
   useEffect(() => {
@@ -15,7 +16,7 @@ function App() {
   }, []);
   return (
     <Suspense fallback={<div className="loading">جارٍ التحميل…</div>}>
-      {route.startsWith('#/admin') ? <AdminDashboard /> : <PublicMap />}
+      {route.startsWith('#/admin') ? <AdminDashboard /> : route.startsWith('#/reports') ? <PublicMap /> : <RiskMap />}
     </Suspense>
   );
 }

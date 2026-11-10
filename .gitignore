@@ -5,3 +5,7 @@ dist/
 *.log
 .DS_Store
 backend/osm-*.json
+analysis/data/
+__pycache__/
+demo/demo_data.json
+demo/flood-demo.html

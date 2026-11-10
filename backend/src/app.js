@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { query } from './db.js';
 import authRouter from './routes/auth.js';
 import reportsRouter from './routes/reports.js';
+import forecastRouter from './routes/forecast.js';
 
 export function createApp({ realtime }) {
   const app = express();
@@ -24,6 +25,7 @@ export function createApp({ realtime }) {
 
   app.use('/api/auth', authRouter);
   app.use('/api/reports', reportsRouter({ realtime }));
+  app.use('/api/forecast', forecastRouter());
 
   app.use((_req, res) => res.status(404).json({ error: 'not_found' }));
 
