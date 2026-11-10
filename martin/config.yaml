@@ -1,0 +1,30 @@
+# Martin vector tile server — https://maplibre.org/martin/
+#   GET /valleys/{z}/{x}/{y}            valley lines + Arabic names
+#   GET /verified_reports/{z}/{x}/{y}   verified reports from the last 48h (public-safe columns)
+listen_addresses: '0.0.0.0:3000'
+cache_size_mb: 256
+
+postgres:
+  connection_string: '${DATABASE_URL}'
+  # Supabase: append ?sslmode=require to DATABASE_URL
+  pool_size: 20
+  auto_publish: false   # only publish what is listed below — never expose users/reports tables
+
+  tables:
+    valleys:
+      schema: public
+      table: valleys
+      srid: 4326
+      geometry_column: geom
+      geometry_type: MULTILINESTRING
+      minzoom: 5
+      properties:
+        id: int4
+        name_ar: text
+        name_en: text
+
+  functions:
+    verified_reports:
+      schema: public
+      function: verified_reports_tiles
+      minzoom: 4

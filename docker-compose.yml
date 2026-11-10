@@ -1,0 +1,41 @@
+# Local full stack: PostGIS + API (Express/Socket.io) + Martin tiles.
+#   docker compose up --build
+#   docker compose exec api npm run create-admin -- admin@example.com 'StrongPass123'
+# Frontend runs separately: cd frontend && npm run dev
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: floods
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d floods"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/floods
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+      CORS_ORIGINS: http://localhost:5173
+    # migrations are idempotent and tracked; seed loads sample valleys only if missing
+    command: sh -c "node scripts/migrate.js --seed && node src/server.js"
+    ports: ["4000:4000"]
+    depends_on:
+      db: { condition: service_healthy }
+
+  martin:
+    image: ghcr.io/maplibre/martin:v0.14.2
+    command: ["--config", "/config/config.yaml"]
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/floods
+    volumes: ["./martin:/config:ro"]
+    ports: ["3000:3000"]
+    depends_on:
+      api: { condition: service_healthy }   # wait until migrations have created the tables
+
+volumes:
+  pgdata:
