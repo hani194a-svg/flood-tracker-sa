@@ -1,6 +1,6 @@
 """Load terrain products (analysis/data/out/<region>) into PostGIS.
 
-    DATABASE_URL=… python analysis/load_db.py
+    DATABASE_URL=… python analysis/load_db.py --region riyadh
 
 Replaces the region's previous terrain data in one transaction (forecast runs for the
 region are removed with it — run forecast.py again afterwards).
@@ -94,4 +94,5 @@ def _wkt(geom, multi=False):
 
 
 if __name__ == "__main__":
+    C.use_region()
     main()

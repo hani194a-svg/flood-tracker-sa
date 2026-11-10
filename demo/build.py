@@ -1,7 +1,11 @@
 """Build the self-contained browser demo (one HTML file, no server).
 
-    DATABASE_URL=… python analysis/export_demo.py demo/demo_data.json
-    python demo/build.py                       # → demo/flood-demo.html
+    for r in riyadh qassim hail jeddah; do
+      DATABASE_URL=… python analysis/export_demo.py --region $r --min-upstream 5 demo/data/$r.json
+    done
+    python demo/build.py                       # → demo/flood-demo.html (+ demo/data/*.json beside it)
+
+The page loads data/<region>.json on demand, so publish/serve the data folder next to it.
 
 model.js is a line-for-line port of analysis/hydrology.py; keep them in sync.
 """
@@ -24,11 +28,9 @@ def leaflet_css() -> str:
 
 
 def main():
-    data = (HERE / "demo_data.json").read_text().replace("</", "<\\/")
     html = ((HERE / "template.html").read_text()
             .replace("/*LEAFLET_CSS*/", leaflet_css())
-            .replace("/*MODEL*/", (HERE / "model.js").read_text())
-            .replace("/*DATA*/", data))
+            .replace("/*MODEL*/", (HERE / "model.js").read_text()))
     out = HERE / "flood-demo.html"
     out.write_text(html)
     print(f"wrote {out} ({len(html) / 1e6:.1f} MB)")

@@ -1,11 +1,10 @@
 """Terrain preprocessing: DEM + land cover → channels, catchments, flood-prone zones.
 
 Run once per region (or when source data changes):
-    python analysis/terrain.py
+    python analysis/terrain.py --region riyadh
 
-Inputs (analysis/data/raw):
-    dem_*.tif   Copernicus GLO-30 DEM tile(s)
-    wc_*.tif    ESA WorldCover 2021 tile(s)
+Inputs (read remotely, only the region's window):
+    Copernicus GLO-30 DEM tiles, ESA WorldCover 2021 tiles
 Outputs (analysis/data/out/<region>):
     streams.geojson, catchments.geojson, flood_zones.geojson, rain_points.json,
     upstream_weights.json, meta.json, preview.png
@@ -24,17 +23,18 @@ if not hasattr(np, "in1d"):
     np.in1d = lambda a, b, **kw: np.isin(np.ravel(a), b, **kw)
 import rasterio
 from rasterio.features import shapes
-from rasterio.merge import merge
 from rasterio.transform import from_origin
 from rasterio.warp import reproject, Resampling, transform_bounds, transform as warp_xy
 from shapely.geometry import shape, mapping, LineString
 import shapely
 from shapely.ops import unary_union
 from pyproj import Transformer
+import pyflwdir
 from pysheds.grid import Grid
 from pysheds.view import Raster, ViewFinder
 
 import config as C
+from sources import read_warped
 
 # D8 encoding used by pysheds: N, NE, E, SE, S, SW, W, NW
 DIRMAP = (64, 128, 1, 2, 4, 8, 16, 32)
@@ -51,18 +51,6 @@ def target_grid():
     width = int(math.ceil((maxx - minx) / C.CELL_M))
     height = int(math.ceil((maxy - miny) / C.CELL_M))
     return from_origin(minx, maxy, C.CELL_M, C.CELL_M), width, height
-
-
-def warp(paths, dst_transform, w, h, resampling, dtype, nodata):
-    srcs = [rasterio.open(p) for p in paths]
-    arr, tr = merge(srcs) if len(srcs) > 1 else (srcs[0].read(), srcs[0].transform)
-    out = np.full((h, w), nodata, dtype=dtype)
-    reproject(arr[0], out, src_transform=tr, src_crs=srcs[0].crs, src_nodata=srcs[0].nodata,
-              dst_transform=dst_transform, dst_crs=f"EPSG:{C.REGION['utm_epsg']}", dst_nodata=nodata,
-              resampling=resampling)
-    for s in srcs:
-        s.close()
-    return out
 
 
 # ───────────────────────── 2. hydrology ─────────────────────────
@@ -144,8 +132,10 @@ def main():
     cell_km2 = (C.CELL_M / 1000) ** 2
     log(f"grid {w}×{h} @ {C.CELL_M} m, EPSG:{epsg}")
 
-    dem = warp(sorted(C.RAW.glob("dem_*.tif")), tr, w, h, Resampling.bilinear, "float32", -9999)
-    lc = warp(sorted(C.RAW.glob("wc_*.tif")), tr, w, h, Resampling.mode, "uint8", 0)
+    crs = f"EPSG:{epsg}"
+    log(f"reading DEM ({len(C.dem_urls(C.REGION['bbox']))} tiles) and land cover…")
+    dem = read_warped(C.dem_urls(C.REGION["bbox"]), crs, tr, w, h, Resampling.bilinear, "float32", -9999)
+    lc = read_warped(C.worldcover_urls(C.REGION["bbox"]), crs, tr, w, h, Resampling.mode, "uint8", 0)
     sea = ((dem <= C.SEA_LEVEL_M) & ((lc == 80) | (lc == 0))) | (dem == -9999)
     dem[sea] = -9999
     valid = ~sea
@@ -154,12 +144,17 @@ def main():
     # pysheds works on its own Raster type tied to a ViewFinder
     vf = ViewFinder(affine=tr, shape=dem.shape, crs=f"EPSG:{epsg}", nodata=-9999)
     grid = Grid(viewfinder=vf)
-    rdem = Raster(dem, viewfinder=vf)
-    log("conditioning DEM (pits, depressions, flats)…")
-    cond = grid.resolve_flats(grid.fill_depressions(grid.fill_pits(rdem)))
-    fdir = grid.flowdir(cond, dirmap=DIRMAP, nodata_out=0)
+    log("conditioning DEM (priority-flood, outlets at edges and sea)…")
+    # Priority-Flood (Barnes et al. 2014) via pyflwdir: every valid cell gets a D8 direction
+    # whose path reaches the grid edge or the sea. pysheds' fill/resolve_flats can leave
+    # unresolved flats that end a wadi mid-course (seen in Riyadh's Wadi Hanifah).
+    filled, d8 = pyflwdir.dem.fill_depressions(dem.astype("float32"), outlets="edge", nodata=-9999,
+                                               max_depth=C.REGION.get("max_fill_m", -1.0))
+    fdir_np = np.where(np.isin(d8, DIRMAP), d8, 0).astype(np.int64)    # pyflwdir uses the same ESRI codes
+    fdir_np[~valid] = 0
+    cond = Raster(np.where(valid, filled, -9999).astype("float64"), viewfinder=vf)
+    fdir = Raster(fdir_np, viewfinder=ViewFinder(affine=tr, shape=dem.shape, crs=f"EPSG:{epsg}", nodata=0))
     acc = grid.accumulation(fdir, dirmap=DIRMAP, nodata_out=0)
-    fdir_np = np.asarray(fdir)
     acc_np = np.asarray(acc, dtype=np.float64)
 
     thr = C.STREAM_MIN_AREA_KM2 / cell_km2
@@ -260,7 +255,7 @@ def main():
 
     # rain points (regular lon/lat grid over the bbox)
     minlng, minlat, maxlng, maxlat = C.REGION["bbox"]
-    g = C.RAIN_GRID_DEG
+    g = C.REGION["rain_grid_deg"]
     lngs = np.arange(minlng + g / 2, maxlng, g)
     lats = np.arange(minlat + g / 2, maxlat, g)
     rain_pts = [{"id": i, "lng": round(float(x), 4), "lat": round(float(y), 4)}
@@ -367,4 +362,5 @@ def main():
 
 
 if __name__ == "__main__":
+    C.use_region()
     main()

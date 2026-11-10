@@ -208,3 +208,8 @@ th { font-size: 13px; color: var(--muted); font-weight: 500; }
 .timeline figcaption { font-size: 12px; }
 .method summary { cursor: pointer; font-weight: 600; }
 .method ol { padding-inline-start: 20px; margin: 8px 0; display: grid; gap: 4px; font-size: 14px; }
+
+.region-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.region-tabs button { position: relative; border: 1px solid var(--border); background: var(--bg); border-radius: 999px; padding: 5px 14px; cursor: pointer; font-weight: 500; }
+.region-tabs button[aria-selected="true"] { background: var(--primary); color: var(--primary-text); border-color: transparent; }
+.region-tabs .dot { position: absolute; top: -2px; inset-inline-end: -2px; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--surface); }

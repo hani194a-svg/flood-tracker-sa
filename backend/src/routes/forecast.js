@@ -5,10 +5,15 @@ import * as fc from '../services/forecast.js';
 export default function forecastRouter() {
   const router = Router();
 
+  router.get('/regions', async (_req, res, next) => {
+    try { res.json(await fc.listRegions()); } catch (e) { next(e); }
+  });
+
   router.get('/runs', async (req, res, next) => {
     try {
       const kind = ['forecast', 'archive', 'scenario'].includes(req.query.kind) ? req.query.kind : undefined;
-      res.json(await fc.listRuns({ kind, limit: req.query.limit }));
+      const region = typeof req.query.region === 'string' ? req.query.region.slice(0, 40) : undefined;
+      res.json(await fc.listRuns({ kind, region, limit: req.query.limit }));
     } catch (e) { next(e); }
   });
 
@@ -27,7 +32,8 @@ export default function forecastRouter() {
   router.param('run', async (req, res, next, id) => {
     try {
       if (id !== 'latest' && !/^\d+$/.test(id)) return res.status(400).json({ error: 'invalid_run' });
-      const run = await fc.getRun(id);
+      const region = typeof req.query.region === 'string' ? req.query.region.slice(0, 40) : undefined;
+      const run = await fc.getRun(id, region);
       if (!run) return res.status(404).json({ error: 'no_forecast' });
       req.run = run;
       next();

@@ -1,8 +1,10 @@
 # رصد السيول — Flood Tracker KSA
 
-منصة **للتنبؤ بالسيول** في المملكة العربية السعودية من **الطقس المتوقع وتضاريس الأرض ونوع سطحها**، مع بلاغات المواطنين كإشارة ثانوية تؤكد الحدث وتساعد في معايرة النموذج. المنطقة التجريبية الأولى: **جدة**.
+منصة **للتنبؤ بالسيول** في المملكة العربية السعودية من **الطقس المتوقع وتضاريس الأرض ونوع سطحها**، مع بلاغات المواطنين كإشارة ثانوية تؤكد الحدث وتساعد في معايرة النموذج.
 
-Flood forecasting for Saudi Arabia from weather forecasts, terrain and land cover, with citizen reports as a secondary signal. Pilot region: Jeddah.
+**المناطق المفعّلة:** الرياض (وادي حنيفة كاملًا، السلي، نساح) · القصيم (بريدة وعنيزة) · حائل (المدينة وأودية أجا وسلمى) · جدة. والتوسع لبقية المناطق بإضافة سطر في `analysis/config.py`.
+
+Flood forecasting for Saudi Arabia from weather forecasts, terrain and land cover, with citizen reports as a secondary signal. Regions: Riyadh, Qassim, Hail, Jeddah.
 
 ---
 
@@ -29,12 +31,16 @@ ESA WorldCover ──────┤→ اتجاه الجريان، القنوا
 | التعرّض | WorldCover (مناطق عمرانية) | رفع درجة الخطر حين تقع مبانٍ في منطقة الغمر |
 | بلاغات المواطنين | التطبيق | تأكيد الحدث؛ والتوقع نفسه يرفع ثقة البلاغ المتوافق معه |
 
-**اختبار على أحداث حقيقية** (`forecast.py --scenario`):
+**المناطق وتحقق النتائج:**
 
-| الحدث | النتيجة قرب الأحياء التي غرقت | النتيجة في أحياء لم تغرق |
-|---|---|---|
-| جدة 25 نوفمبر 2009 (90 ملم / 4 س) | قويزة وأم الخير: **شديد**، ذروة 170–230 م³/ث | الكورنيش والروضة: متوسط، 6–11 م³/ث |
-| زخة خفيفة (14 ملم / 3 س) | لا خطر في أي قناة | — |
+| المنطقة | القنوات | أحداث مختبرة | النتيجة |
+|---|---|---|---|
+| الرياض | 9,604 | أمطار 5–7 يناير 2023 (ERA5، حتى 95 ملم) | وادي حنيفة: «مرتفع» عند الدرعية و«شديد» جنوب الرياض (ذروة حتى 247 م³/ث)؛ العليا والملقا: «متوسط» |
+| القصيم | 3,654 | أمطار 14–20 ديسمبر 2025 (ERA5، حتى 80 ملم) | 24 قناة «متوسط»، لا شيء أعلى |
+| حائل | 8,481 | — (حد الأرشيف اليومي نفد؛ شغّل `--region hail --archive 2022-11-18 2022-11-21`) | — |
+| جدة | 2,404 | سيول 25 نوفمبر 2009 (90 ملم / 4 س) | قويزة وأم الخير: «شديد» (170–230 م³/ث)؛ الكورنيش والروضة: «متوسط» |
+
+زخة خفيفة (14 ملم / 3 س) لا تُظهر خطرًا في أي منطقة.
 
 **حدود النموذج:** نموذج فرز سريع (على غرار Flash Flood Guidance)، وليس محاكاة هيدروليكية. لا يحتسب السدود وقنوات التصريف التي أُنشئت بعد 2011 ولا شبكات تصريف الشوارع. السيناريوهات التاريخية توزّع المطر بالتساوي. وبعض الأحواض (مثل وادي فاطمة) تمتد خارج المنطقة فيُقدَّر خطرها بأقل من الحقيقي. **قبل الاستخدام العام يلزم معايرته بأحداث موثّقة أكثر.**
 
@@ -42,19 +48,24 @@ ESA WorldCover ──────┤→ اتجاه الجريان، القنوا
 
 ```bash
 pip install -r analysis/requirements.txt
-# 1) نزّل بلاطة الارتفاعات والغطاء الأرضي للمنطقة إلى analysis/data/raw/
-#    https://copernicus-dem-30m.s3.amazonaws.com/Copernicus_DSM_COG_10_N21_00_E039_00_DEM/Copernicus_DSM_COG_10_N21_00_E039_00_DEM.tif → dem_N21E039.tif
-#    https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N21E039_Map.tif → wc_N21E039.tif
-python analysis/terrain.py                     # ~1 دقيقة لجدة → analysis/data/out/jeddah/
-DATABASE_URL=… python analysis/load_db.py      # تحميل القنوات والأحواض ومناطق الغمر
-DATABASE_URL=… python analysis/forecast.py     # توقع حي (جدوله كل 1–3 ساعات)
-DATABASE_URL=… python analysis/forecast.py --scenario jeddah-2009   # إعادة تشغيل حدث تاريخي
+# الارتفاعات والغطاء الأرضي تُقرأ عن بُعد (الجزء المطلوب فقط من البلاطات)
+for r in riyadh qassim hail jeddah; do
+  python analysis/terrain.py --region $r                  # 1–3 دقائق لكل منطقة
+  DATABASE_URL=… python analysis/load_db.py --region $r   # القنوات والأحواض ومناطق الغمر
+  DATABASE_URL=… python analysis/forecast.py --region $r  # توقع حي (جدوله كل 2–3 ساعات)
+done
+DATABASE_URL=… python analysis/forecast.py --region riyadh --archive 2023-01-04 2023-01-08 --label "أمطار الرياض · يناير 2023"
+DATABASE_URL=… python analysis/forecast.py --region jeddah --scenario jeddah-2009
 python -m unittest discover -s analysis/tests  # اختبارات معادلات الهيدرولوجيا
 ```
 
-لتغيير المنطقة عدّل `REGION` في `analysis/config.py`. حد Open-Meteo المجاني نحو 10,000 طلب يوميًا، وكل نقطة مطر تُحتسب طلبًا (168 نقطة لجدة)، فالتشغيل كل ساعتين آمن.
+**إضافة منطقة:** سطر في `REGIONS` داخل `analysis/config.py` (الإطار، نظام UTM، شبكة نقاط المطر، أسماء الأحياء). يجب أن يحتوي الإطار أحواض الأودية المهمة كاملة؛ وإلا تُعلَّم القنوات `truncated` ويُقدَّر خطرها بأقل من الحقيقي. في المناطق الرملية المنبسطة (مثل القصيم) يُضبط `max_fill_m` حتى تبقى المنخفضات بين الكثبان أحواضًا مغلقة بدل ملئها ببحيرات صناعية.
 
-**نسخة تجريبية بدون خادم:** `analysis/export_demo.py` ثم `demo/build.py` يُنتجان صفحة HTML واحدة تشغّل النموذج نفسه في المتصفح (`demo/model.js` منقول سطرًا بسطر من `analysis/hydrology.py`).
+**التضاريس:** تُعالج بخوارزمية Priority-Flood (عبر pyflwdir) التي تضمن تصريف كل خلية إلى مخرج. استبدلنا معالجة pysheds لأنها تركت مسطحات بلا اتجاه قطعت وادي حنيفة داخل الرياض.
+
+**حدود Open-Meteo المجانية:** نحو 10,000 طلب يوميًا، وكل نقطة مطر تُحتسب طلبًا (الرياض 150، حائل 132، القصيم 72، جدة 168 = 522 لكل دورة)، فالتشغيل كل 2–3 ساعات آمن. طلبات الأرشيف الطويلة تُحتسب بأضعاف ذلك.
+
+**نسخة تجريبية بدون خادم:** `analysis/export_demo.py --region <r>` لكل منطقة ثم `demo/build.py` يُنتجان صفحة HTML تحمّل `data/<region>.json` عند الطلب، وتشغّل النموذج نفسه في المتصفح (`demo/model.js` منقول سطرًا بسطر من `analysis/hydrology.py`).
 
 ## المكوّنات
 
@@ -165,9 +176,10 @@ cd frontend && cp .env.example .env && npm install && npm run dev
 | POST | `/api/reports` | عام (JWT اختياري) | إرسال بلاغ ← يُقيَّم فورًا |
 | GET | `/api/reports/viewport?bbox=minLng,minLat,maxLng,maxLat` | عام / مشرف | بلاغات الشاشة الحالية (العام يرى المعتمدة فقط، والمشرف يستخدم `&status=pending,verified`) |
 | GET | `/api/reports?status=&search=&sort=confidence` | مشرف | قائمة البلاغات |
-| GET | `/api/forecast/runs?kind=forecast\|scenario\|archive` | عام | عمليات التنبؤ |
+| GET | `/api/forecast/regions` | عام | المناطق، وآخر توقع لكل منها |
+| GET | `/api/forecast/runs?kind=…&region=riyadh` | عام | عمليات التنبؤ |
 | GET | `/api/forecast/regions/:slug/streams.geojson` | عام | شبكة القنوات (ثابتة، مع ETag) |
-| GET | `/api/forecast/runs/:run/levels` | عام | مستوى كل قناة لكل ساعة (`:run` = رقم أو `latest`) |
+| GET | `/api/forecast/runs/:run/levels?region=riyadh` | عام | مستوى كل قناة لكل ساعة (`:run` = رقم أو `latest`) |
 | GET | `/api/forecast/runs/:run/alerts?minLevel=4` | عام | أخطر القنوات، واحدة لكل مسار تصريف |
 | GET | `/api/forecast/runs/:run/zones.geojson` | عام | مناطق الغمر للقنوات الخطرة |
 | GET | `/api/forecast/runs/:run/streams/:id` | عام | مطر الحوض والخطر لكل ساعة (للرسم البياني) |

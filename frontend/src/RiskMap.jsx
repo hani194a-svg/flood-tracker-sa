@@ -8,7 +8,6 @@ import { LEVELS, levelAt, fmtHour, runTitle } from './lib/risk.js';
 import RiskTimeline from './components/RiskTimeline.jsx';
 import { MissingToken } from './PublicMap.jsx';
 
-const REGION = { slug: 'jeddah', view: { longitude: 39.33, latitude: 21.55, zoom: 9.6 } };
 const API_URL = import.meta.env.VITE_API_URL || '';
 const TERRAIN_ATTRIBUTION = `${OSM_ATTRIBUTION} · التضاريس: Copernicus GLO-30 · الغطاء الأرضي: ESA WorldCover · الطقس: Open-Meteo`;
 
@@ -25,32 +24,54 @@ export default function RiskMap() {
   const [error, setError] = useState(null);
   const [tokenRejected, setTokenRejected] = useState(false);
   const [mapReady, setMapReady] = useState(false);
+  const [regions, setRegions] = useState([]);
+  const [region, setRegion] = useState(() => {
+    try { return localStorage.getItem('flood_region') || 'riyadh'; } catch { return 'riyadh'; }
+  });
+  const regionInfo = regions.find((r) => r.slug === region);
+
+  useEffect(() => {
+    api('/forecast/regions').then(setRegions).catch(() => setError('تعذّر تحميل المناطق'));
+  }, []);
+
+  const chooseRegion = (slug) => {
+    setRegion(slug); setRunId('latest'); setSelected(null); setLevels(null); setStreams(null);
+    try { localStorage.setItem('flood_region', slug); } catch { /* storage unavailable */ }
+  };
+
+  // move the map whenever the region (or its metadata) becomes known
+  useEffect(() => {
+    const v = regionInfo?.view;
+    if (mapReady && v) mapRef.current?.getMap().flyTo({ center: [v[0], v[1]], zoom: v[2], duration: 1000 });
+  }, [mapReady, regionInfo?.slug]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // static channel geometry (cached by the server with an ETag)
   useEffect(() => {
-    fetch(`${API_URL}/api/forecast/regions/${REGION.slug}/streams.geojson?minUpstream=2`)
+    fetch(`${API_URL}/api/forecast/regions/${region}/streams.geojson?minUpstream=2`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
       .then(setStreams)
       .catch(() => setError('تعذّر تحميل شبكة الأودية. هل حُمّلت بيانات التضاريس؟ (analysis/load_db.py)'));
-  }, []);
+  }, [region]);
 
   const loadRuns = useCallback(async () => {
     try {
       const [live, scen, arch] = await Promise.all([
-        api('/forecast/runs?kind=forecast&limit=1'), api('/forecast/runs?kind=scenario&limit=10'), api('/forecast/runs?kind=archive&limit=5'),
+        api(`/forecast/runs?kind=forecast&limit=1&region=${region}`), api(`/forecast/runs?kind=scenario&limit=10&region=${region}`),
+        api(`/forecast/runs?kind=archive&limit=5&region=${region}`),
       ]);
       // keep one run per scenario label (newest)
       const seen = new Set();
       const others = [...scen, ...arch].filter((r) => !seen.has(r.label) && seen.add(r.label));
       setRuns([...live, ...others]);
     } catch { setError('تعذّر الاتصال بالخادم'); }
-  }, []);
+  }, [region]);
 
   const loadRun = useCallback(async (id) => {
     try {
+      const q = `?region=${region}`;
       const [lv, al, zn] = await Promise.all([
-        api(`/forecast/runs/${id}/levels`), api(`/forecast/runs/${id}/alerts`),
-        fetch(`${API_URL}/api/forecast/runs/${id}/zones.geojson?minLevel=4`).then((r) => r.json()),
+        api(`/forecast/runs/${id}/levels${q}`), api(`/forecast/runs/${id}/alerts${q}`),
+        fetch(`${API_URL}/api/forecast/runs/${id}/zones.geojson${q}&minLevel=4`).then((r) => r.json()),
       ]);
       setLevels(lv); setAlerts(al.alerts); setZones(zn); setError(null);
       // start the slider at "now" for live forecasts, at the first risky hour for past events
@@ -58,9 +79,9 @@ export default function RiskMap() {
       const firstRisk = Math.min(...Object.values(lv.levels).flat().map((s) => s[0]), lv.hours - 1);
       setHour(lv.run.kind === 'forecast' ? Math.max(0, Math.min(nowH, lv.hours - 1)) : Math.max(0, firstRisk));
     } catch (e) {
-      setError(e.status === 404 ? 'لا توجد توقعات بعد. شغّل analysis/forecast.py' : 'تعذّر تحميل التوقعات');
+      setError(e.status === 404 ? `لا توجد توقعات بعد. شغّل analysis/forecast.py --region ${region}` : 'تعذّر تحميل التوقعات');
     }
-  }, []);
+  }, [region]);
 
   useEffect(() => { loadRuns(); }, [loadRuns]);
   useEffect(() => { loadRun(runId); setSelected(null); }, [runId, loadRun]);
@@ -70,7 +91,7 @@ export default function RiskMap() {
     const s = io(socketUrl, { transports: ['websocket'] });
     s.on('forecast:updated', (m) => {
       loadRuns();
-      if (m.kind === 'forecast' && runId === 'latest') loadRun('latest');
+      if (m.kind === 'forecast' && runId === 'latest') loadRun('latest');   // loadRun is region-scoped
     });
     return () => s.close();
   }, [runId, loadRun, loadRuns]);
@@ -95,7 +116,7 @@ export default function RiskMap() {
 
   const openStream = async (id, lngLat) => {
     try {
-      const t = await api(`/forecast/runs/${levels.run.id}/streams/${id}`);
+      const t = await api(`/forecast/runs/${levels.run.id}/streams/${id}`);   // run id already pins the region
       setSelected(t);
       if (lngLat) mapRef.current?.getMap().flyTo({ center: lngLat, zoom: Math.max(mapRef.current.getMap().getZoom(), 12) });
     } catch { /* ignore */ }
@@ -110,9 +131,18 @@ export default function RiskMap() {
     <div className="risk-page">
       <aside className="risk-panel">
         <header>
-          <h1>توقعات السيول · جدة</h1>
+          <h1>توقعات السيول{regionInfo ? ` · ${regionInfo.name_ar}` : ''}</h1>
           <p className="muted">من الطقس المتوقع والتضاريس ونوع الأرض. البلاغات <a href="#/reports">صفحة مستقلة</a>.</p>
         </header>
+
+        <div className="region-tabs" role="tablist" aria-label="المنطقة">
+          {regions.map((r) => (
+            <button key={r.slug} role="tab" aria-selected={r.slug === region} onClick={() => chooseRegion(r.slug)}>
+              {r.name_ar}
+              {r.latest?.max_level >= 3 && <i className="dot" style={{ background: LEVELS[r.latest.max_level].color }} />}
+            </button>
+          ))}
+        </div>
 
         <label className="field">
           الفترة
@@ -192,7 +222,7 @@ export default function RiskMap() {
         <Map
           ref={mapRef}
           mapboxAccessToken={MAPBOX_TOKEN}
-          initialViewState={REGION.view}
+          initialViewState={{ longitude: 46.70, latitude: 24.68, zoom: 9 }}
           mapStyle={MAP_STYLE}
           style={{ width: '100%', height: '100%' }}
           interactiveLayerIds={['streams-line']}

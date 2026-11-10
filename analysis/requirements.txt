@@ -5,3 +5,4 @@ shapely>=2.0
 pyproj>=3.6
 psycopg[binary]>=3.2
 matplotlib>=3.8
+pyflwdir>=0.5

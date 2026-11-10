@@ -1,6 +1,6 @@
 """Hourly flood-risk forecast for every channel reach in the region.
 
-    python analysis/forecast.py                       # live: Open-Meteo, 5 days history + 3 days ahead
+    python analysis/forecast.py --region riyadh       # live: Open-Meteo, 5 days history + 3 days ahead
     python analysis/forecast.py --archive 2024-01-05 2024-01-07   # past event from ERA5 reanalysis
     python analysis/forecast.py --scenario jeddah-2009            # documented historical storm
     python analysis/forecast.py --dry-run --scenario jeddah-2009  # print results, write nothing
@@ -55,7 +55,7 @@ def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", file=sys.stderr, flush=True)
 
 
-def get_json(url, params, retries=3):
+def get_json(url, params, retries=4):
     q = urllib.parse.urlencode(params)
     for i in range(retries):
         try:
@@ -65,7 +65,8 @@ def get_json(url, params, retries=3):
             body = getattr(e, "read", lambda: b"")().decode(errors="ignore")[:200]
             if i == retries - 1:
                 raise SystemExit(f"weather request failed: {e} {body}")
-            time.sleep(2 ** i * 3)
+            # 429 = Open-Meteo's per-minute limit (shared by every user behind the same IP)
+            time.sleep(65 if getattr(e, "code", None) == 429 else 2 ** i * 3)
 
 
 def fetch_open_meteo(points, url, extra):
@@ -122,7 +123,8 @@ def build_inputs(args, reg):
         times, rain = fetch_open_meteo(pts, ARCHIVE_URL, {
             "start_date": (d0 - timedelta(days=5)).date().isoformat(), "end_date": d1.date().isoformat()})
         n_ant = next(i for i, t in enumerate(times) if t >= d0)
-        return "archive", f"أرشيف {args.archive[0]} – {args.archive[1]}", "open-meteo:era5", times, rain, n_ant, {}
+        label = args.label or f"أرشيف {args.archive[0]} – {args.archive[1]}"
+        return "archive", label, "open-meteo:era5", times, rain, n_ant, {}
     times, rain = fetch_open_meteo(pts, FORECAST_URL, {"past_days": 5, "forecast_days": args.days})
     now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
     n_ant = next(i for i, t in enumerate(times) if t >= now)
@@ -135,8 +137,11 @@ def main():
     g.add_argument("--scenario", choices=sorted(SCENARIOS))
     g.add_argument("--archive", nargs=2, metavar=("START", "END"))
     ap.add_argument("--days", type=int, default=3)
+    ap.add_argument("--label", help="display name for an archive run, e.g. 'أمطار الرياض يناير 2023'")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--region", default=C.REGION["slug"], choices=sorted(C.REGIONS))
     args = ap.parse_args()
+    C.use_region(["--region", args.region])
 
     with connect() as conn, conn.cursor() as cur:
         reg = load_region(cur)

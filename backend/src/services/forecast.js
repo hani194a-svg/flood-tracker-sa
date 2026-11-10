@@ -3,26 +3,42 @@ import { query } from '../db.js';
 const RUN_COLUMNS = `fr.id, rg.slug AS region, rg.name_ar AS region_name_ar, fr.kind, fr.label, fr.source,
   fr.start_time, fr.end_time, fr.max_level, fr.params, fr.created_at`;
 
-export async function listRuns({ kind, limit = 20 } = {}) {
-  const params = [];
-  let where = '';
-  if (kind) { params.push(kind); where = `WHERE fr.kind = $1`; }
-  params.push(Math.min(Number(limit) || 20, 100));
+export async function listRegions() {
   const { rows } = await query(
-    `SELECT ${RUN_COLUMNS} FROM public.forecast_runs fr JOIN public.regions rg ON rg.id = fr.region_id
-     ${where} ORDER BY fr.created_at DESC LIMIT $${params.length}`, params);
+    `SELECT rg.slug, rg.name_ar, rg.meta->'region'->'view' AS view, rg.meta->'region'->'places' AS places,
+            ARRAY[ST_XMin(rg.bbox), ST_YMin(rg.bbox), ST_XMax(rg.bbox), ST_YMax(rg.bbox)] AS bbox,
+            (SELECT COUNT(*)::int FROM public.streams s WHERE s.region_id = rg.id) AS reaches,
+            (SELECT json_build_object('id', fr.id, 'created_at', fr.created_at, 'max_level', fr.max_level)
+               FROM public.forecast_runs fr WHERE fr.region_id = rg.id AND fr.kind = 'forecast'
+               ORDER BY fr.created_at DESC LIMIT 1) AS latest
+     FROM public.regions rg ORDER BY rg.id`);
   return rows;
 }
 
-/** `id` may be a number or 'latest' (newest live forecast). */
-export async function getRun(id) {
+export async function listRuns({ kind, region, limit = 20 } = {}) {
+  const params = [];
+  const where = [];
+  if (kind) { params.push(kind); where.push(`fr.kind = $${params.length}`); }
+  if (region) { params.push(region); where.push(`rg.slug = $${params.length}`); }
+  params.push(Math.min(Number(limit) || 20, 100));
   const { rows } = await query(
-    id === 'latest'
-      ? `SELECT ${RUN_COLUMNS} FROM public.forecast_runs fr JOIN public.regions rg ON rg.id = fr.region_id
-         WHERE fr.kind = 'forecast' ORDER BY fr.created_at DESC LIMIT 1`
-      : `SELECT ${RUN_COLUMNS} FROM public.forecast_runs fr JOIN public.regions rg ON rg.id = fr.region_id
-         WHERE fr.id = $1`,
-    id === 'latest' ? [] : [Number(id)]);
+    `SELECT ${RUN_COLUMNS} FROM public.forecast_runs fr JOIN public.regions rg ON rg.id = fr.region_id
+     ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY fr.created_at DESC LIMIT $${params.length}`, params);
+  return rows;
+}
+
+/** `id` may be a number or 'latest' (newest live forecast, optionally for one region). */
+export async function getRun(id, region) {
+  if (id === 'latest') {
+    const { rows } = await query(
+      `SELECT ${RUN_COLUMNS} FROM public.forecast_runs fr JOIN public.regions rg ON rg.id = fr.region_id
+       WHERE fr.kind = 'forecast' AND ($1::text IS NULL OR rg.slug = $1)
+       ORDER BY fr.created_at DESC LIMIT 1`, [region || null]);
+    return rows[0] || null;
+  }
+  const { rows } = await query(
+    `SELECT ${RUN_COLUMNS} FROM public.forecast_runs fr JOIN public.regions rg ON rg.id = fr.region_id
+     WHERE fr.id = $1`, [Number(id)]);
   return rows[0] || null;
 }
 

@@ -7,5 +7,5 @@ dist/
 backend/osm-*.json
 analysis/data/
 __pycache__/
-demo/demo_data.json
+demo/data/
 demo/flood-demo.html

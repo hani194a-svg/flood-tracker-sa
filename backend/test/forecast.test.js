@@ -60,6 +60,17 @@ test('latest run, levels and alerts', async () => {
   assert.equal((await api().get('/api/forecast/runs/999999')).status, 404);
 });
 
+test('regions list and region-scoped latest run', async () => {
+  const regions = await api().get('/api/forecast/regions');
+  const r = regions.body.find((x) => x.slug === 'test-region');
+  assert.equal(r.reaches, 2);
+  assert.equal(r.latest.id, ids.run);
+  assert.deepEqual(r.bbox.map(Number), [39.0, 21.3, 39.4, 21.7]);
+  assert.equal((await api().get('/api/forecast/runs/latest?region=test-region')).body.id, ids.run);
+  assert.equal((await api().get('/api/forecast/runs/latest?region=nowhere')).status, 404);
+  assert.equal((await api().get('/api/forecast/runs?region=test-region')).body.length, 1);
+});
+
 test('static channel geometry is cached with an ETag', async () => {
   const first = await api().get('/api/forecast/regions/test-region/streams.geojson');
   assert.equal(first.status, 200);
